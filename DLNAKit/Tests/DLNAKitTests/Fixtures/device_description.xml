@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<root xmlns="urn:schemas-upnp-org:device-1-0">
+  <specVersion>
+    <major>1</major>
+    <minor>0</minor>
+  </specVersion>
+  <device>
+    <deviceType>urn:schemas-upnp-org:device:MediaServer:1</deviceType>
+    <friendlyName>My NAS DLNA</friendlyName>
+    <manufacturer>Acme</manufacturer>
+    <modelName>NAS-9000</modelName>
+    <UDN>uuid:4d696e69-444c-164e-9d41-001122334455</UDN>
+    <serviceList>
+      <service>
+        <serviceType>urn:schemas-upnp-org:service:ConnectionManager:1</serviceType>
+        <serviceId>urn:upnp-org:serviceId:ConnectionManager</serviceId>
+        <controlURL>/ctl/ConnectionMgr</controlURL>
+        <eventSubURL>/evt/ConnectionMgr</eventSubURL>
+        <SCPDURL>/ConnectionMgr.xml</SCPDURL>
+      </service>
+      <service>
+        <serviceType>urn:schemas-upnp-org:service:ContentDirectory:1</serviceType>
+        <serviceId>urn:upnp-org:serviceId:ContentDirectory</serviceId>
+        <controlURL>/ctl/ContentDir</controlURL>
+        <eventSubURL>/evt/ContentDir</eventSubURL>
+        <SCPDURL>/ContentDir.xml</SCPDURL>
+      </service>
+    </serviceList>
+  </device>
+</root>

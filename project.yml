@@ -1,0 +1,56 @@
+name: DLNAviewer
+options:
+  bundleIdPrefix: com.mtkg
+  deploymentTarget:
+    iOS: "26.0"
+    macOS: "26.0"
+  createIntermediateGroups: true
+
+packages:
+  DLNAKit:
+    path: DLNAKit
+
+settings:
+  base:
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "6.0"
+    DEVELOPMENT_TEAM: G72M73C546
+    CODE_SIGN_STYLE: Automatic
+
+targets:
+  DLNAviewer:
+    type: application
+    supportedDestinations: [iOS, macOS]
+    deploymentTarget:
+      iOS: "26.0"
+      macOS: "26.0"
+    sources:
+      - path: App
+    dependencies:
+      - package: DLNAKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mtkg.dlnaviewer
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: App/DLNAviewer.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: DLNAviewer
+        LSApplicationCategoryType: public.app-category.video
+        NSLocalNetworkUsageDescription: "同一ネットワーク上の DLNA メディアサーバーを探索・接続するために使用します。"
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight

@@ -1,0 +1,15 @@
+# Xcode / SwiftPM build artifacts
+.build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# xcodegen で生成（project.yml から再生成可能）
+DLNAviewer.xcodeproj/
+App/Info.plist
+
+# macOS
+.DS_Store
+
+# Claude Code（ローカル設定・一時ファイル）
+.claude/
