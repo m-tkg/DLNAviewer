@@ -13,6 +13,11 @@ struct PlayerRoute: Hashable {
     var item: MediaItem
 }
 
+/// トップ画面からの遷移先。
+enum TopRoute: Hashable {
+    case downloads
+}
+
 extension MediaItem {
     /// AVPlayer で再生しやすい `<res>` を優先的に選ぶ。
     /// mp4/mov/m4v/mpeg 系を優先し、無ければ先頭リソースにフォールバックする。

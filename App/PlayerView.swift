@@ -64,7 +64,7 @@ private struct MacPlayer: View {
         }
         .navigationTitle(item.title)
         .onAppear {
-            guard player == nil, let url = item.preferredVideoResource?.url else { return }
+            guard player == nil, let url = DownloadManager.shared.preferredURL(for: item) else { return }
             let playerItem = AVPlayerItem(asset: AVURLAsset(url: url))
             playerItem.preferredForwardBufferDuration = 60
             playerItem.canUseNetworkResourcesForLiveStreamingWhilePaused = true
@@ -103,6 +103,7 @@ private struct iOSPlayer: View {
     @State private var duration: Double = 0
     @State private var isScrubbing = false
     @State private var hideTask: Task<Void, Never>?
+    @State private var showingBookmarks = false
 
     // スワイプシーク用
     @State private var viewHeight: CGFloat = 1
@@ -120,6 +121,39 @@ private struct iOSPlayer: View {
     private let ticker = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
     var body: some View {
+        Group {
+            if showingBookmarks {
+                bookmarkSplitLayout
+            } else {
+                fullPlayer
+            }
+        }
+        .toolbar(.hidden, for: .navigationBar)
+        .onReceive(ticker) { _ in tick() }
+        // シークバー（スライダー）ドラッグ中も動画を追従させる。
+        .onChange(of: currentTime) { _, newValue in
+            if isScrubbing { seeker.seek(toSeconds: newValue, tolerance: 0.5) }
+        }
+        .onAppear {
+            // インライン表示に入るので PiP は止める（別動画を選んだ場合も旧 PiP を停止）。
+            if pip.isActive { pip.stop() }
+            // PiP 開始時は再生カテゴリへ、終了時はユーザー設定へ戻す。
+            pip.onWillStart = { AudioSessionManager.configure(playInSilentMode: true) }
+            pip.onDidStop = { AudioSessionManager.configure(playInSilentMode: playInSilentMode) }
+            setUp()
+            OrientationManager.shared.allowAll()   // プレイヤーは回転可能に
+        }
+        .onDisappear {
+            hideTask?.cancel()
+            OrientationManager.shared.resetToPortrait()   // 一覧へ戻る時は縦
+            // PiP 中は止めない（PiP のままリストへ戻っても再生継続）。
+            PlaybackModel.shared.pauseUnlessPiP()
+            if !pip.isActive { AudioSessionManager.deactivate() }
+        }
+    }
+
+    /// 全画面プレイヤー。
+    private var fullPlayer: some View {
         ZStack {
             Color.black.ignoresSafeArea()
             if hasSource {
@@ -160,29 +194,80 @@ private struct iOSPlayer: View {
         .contextMenu {
             RatingMenu(item: item, ratings: ratings)
         }
-        .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden(!controlsVisible)
-        .onReceive(ticker) { _ in tick() }
-        // シークバー（スライダー）ドラッグ中も動画を追従させる。
-        .onChange(of: currentTime) { _, newValue in
-            if isScrubbing { seeker.seek(toSeconds: newValue, tolerance: 0.5) }
+    }
+
+    /// ブックマーク一覧モード：上に一覧、画面下に動画（小窓）。
+    private var bookmarkSplitLayout: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("ブックマーク").font(.headline)
+                Spacer()
+                Button { showingBookmarks = false } label: {
+                    Image(systemName: "xmark.circle.fill").font(.title2).foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 10)
+
+            bookmarkList
+
+            // 画面下に動画（小窓）＋現在位置のシークバー。
+            VStack(spacing: 4) {
+                ZStack {
+                    Color.black
+                    if hasSource { PlayerLayerView() }
+                }
+                .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                miniSeekBar
+            }
+            .background(.black)
         }
-        .onAppear {
-            // インライン表示に入るので PiP は止める（別動画を選んだ場合も旧 PiP を停止）。
-            if pip.isActive { pip.stop() }
-            // PiP 開始時は再生カテゴリへ、終了時はユーザー設定へ戻す。
-            pip.onWillStart = { AudioSessionManager.configure(playInSilentMode: true) }
-            pip.onDidStop = { AudioSessionManager.configure(playInSilentMode: playInSilentMode) }
-            setUp()
-            OrientationManager.shared.allowAll()   // プレイヤーは回転可能に
+    }
+
+    private var bookmarkList: some View {
+        let marks = BookmarksModel.shared.bookmarks(for: item)
+        return Group {
+            if marks.isEmpty {
+                ContentUnavailableView("ブックマークがありません", systemImage: "bookmark")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List {
+                    ForEach(marks, id: \.self) { time in
+                        Button { seekTo(time) } label: {
+                            HStack(spacing: 12) {
+                                SceneThumbnailView(item: item, time: time, size: CGSize(width: 100, height: 56))
+                                Text(timeLabel(time)).font(.body.monospacedDigit())
+                                Spacer()
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .swipeActions {
+                            Button(role: .destructive) {
+                                BookmarksModel.shared.remove(time, for: item)
+                            } label: {
+                                Label("削除", systemImage: "trash")
+                            }
+                        }
+                    }
+                }
+            }
         }
-        .onDisappear {
-            hideTask?.cancel()
-            OrientationManager.shared.resetToPortrait()   // 一覧へ戻る時は縦
-            // PiP 中は止めない（PiP のままリストへ戻っても再生継続）。
-            PlaybackModel.shared.pauseUnlessPiP()
-            if !pip.isActive { AudioSessionManager.deactivate() }
+    }
+
+    /// 小窓用のコンパクトなシークバー（ブックマークマーカー付き）。
+    private var miniSeekBar: some View {
+        HStack(spacing: 8) {
+            Text(Self.timeString(currentTime)).font(.caption2.monospacedDigit()).foregroundStyle(.white)
+            Slider(value: $currentTime, in: 0...max(duration, 0.1)) { editing in
+                isScrubbing = editing
+                if !editing { seeker.seek(toSeconds: currentTime, tolerance: 0) }
+            }
+            .overlay { bookmarkMarkers }
+            Text(Self.timeString(duration)).font(.caption2.monospacedDigit()).foregroundStyle(.white)
         }
+        .padding(.horizontal, 10)
+        .padding(.bottom, 6)
     }
 
     // MARK: コントロールオーバーレイ
@@ -218,17 +303,24 @@ private struct iOSPlayer: View {
                 .font(.headline)
                 .lineLimit(1)
             Spacer()
-            if pip.isSupported {
-                Button { pip.start() } label: {
-                    Image(systemName: "pip.enter").font(.title3)
-                }
+            // 現在位置をブックマーク追加（ライブのプレイヤー位置を使う）。
+            Button {
+                let time = player.currentTime().seconds
+                BookmarksModel.shared.add(time.isFinite ? time : currentTime, for: item)
+                scheduleAutoHide()
+            } label: {
+                Image(systemName: "bookmark").font(.title3)
+            }
+            // ブックマーク一覧
+            Button {
+                showingBookmarks = true
+                hideTask?.cancel()
+            } label: {
+                Image(systemName: "list.bullet").font(.title3)
             }
             Button { toggleSilentPlayback() } label: {
                 Image(systemName: playInSilentMode ? "speaker.wave.2.fill" : "speaker.slash.fill")
                     .font(.title3)
-            }
-            Button { toggleOrientation() } label: {
-                Image(systemName: "rotate.right").font(.title3)
             }
         }
         .padding(.horizontal)
@@ -267,11 +359,34 @@ private struct iOSPlayer: View {
                     scheduleAutoHide()
                 }
             }
+            .overlay { bookmarkMarkers }   // シークバー上にブックマーク位置を表示
             Text(Self.timeString(duration))
                 .font(.caption.monospacedDigit())
         }
         .padding(.horizontal)
         .padding(.bottom, 12)
+    }
+
+    private var bookmarkMarkers: some View {
+        GeometryReader { geo in
+            let marks = BookmarksModel.shared.bookmarks(for: item)
+            let inset: CGFloat = 8
+            let usable = max(geo.size.width - inset * 2, 1)
+            ForEach(marks, id: \.self) { time in
+                let frac = duration > 0 ? CGFloat(min(max(time / duration, 0), 1)) : 0
+                Capsule()
+                    .fill(.yellow)
+                    .frame(width: 3, height: 12)
+                    .position(x: inset + usable * frac, y: geo.size.height / 2)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func seekTo(_ time: Double) {
+        currentTime = time
+        seeker.seek(toSeconds: time, tolerance: 0)
+        scheduleAutoHide()
     }
 
     // MARK: 再生制御
@@ -392,16 +507,6 @@ private struct iOSPlayer: View {
         scheduleAutoHide()
     }
 
-    /// 端末の回転ロック中でも縦横を強制的に切り替える。
-    private func toggleOrientation() {
-        if OrientationManager.shared.isLandscape {
-            OrientationManager.shared.force(.portrait)
-        } else {
-            OrientationManager.shared.force(.landscapeRight)
-        }
-        scheduleAutoHide()
-    }
-
     static func timeString(_ seconds: Double) -> String {
         guard seconds.isFinite, seconds >= 0 else { return "0:00" }
         let total = Int(seconds)
@@ -487,7 +592,7 @@ final class PlaybackModel {
     /// - Returns: 再生可能なリソースがあれば true。
     @discardableResult
     func load(item: MediaItem, playInSilentMode: Bool) -> Bool {
-        guard let url = item.preferredVideoResource?.url else { return false }
+        guard let url = DownloadManager.shared.preferredURL(for: item) else { return false }
         AudioSessionManager.configure(playInSilentMode: playInSilentMode)
         // 同一アイテムが既にロード済みなら継続（PiP から戻った場合など）。
         if loadedKey == item.id, player.currentItem != nil {

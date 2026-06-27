@@ -20,7 +20,8 @@ struct ServerListView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if model.servers.isEmpty && model.discovered.isEmpty {
+                if model.servers.isEmpty && model.discovered.isEmpty
+                    && DownloadManager.shared.downloadedItems().isEmpty {
                     ContentUnavailableView {
                         Label("サーバーがありません", systemImage: "server.rack")
                     } description: {
@@ -60,6 +61,11 @@ struct ServerListView: View {
                     }
                 }
             }
+            .navigationDestination(for: TopRoute.self) { route in
+                switch route {
+                case .downloads: DownloadsView()
+                }
+            }
             .navigationDestination(for: BrowseRoute.self) { route in
                 BrowseView(server: route.server, objectID: route.objectID, title: route.title)
             }
@@ -88,6 +94,14 @@ struct ServerListView: View {
 
     private var serverList: some View {
         List {
+            let downloaded = DownloadManager.shared.downloadedItems()
+            if !downloaded.isEmpty {
+                Section {
+                    NavigationLink(value: TopRoute.downloads) {
+                        Label("ダウンロード済み（\(downloaded.count)）", systemImage: "arrow.down.circle.fill")
+                    }
+                }
+            }
             if !model.servers.isEmpty {
                 Section("登録済み") {
                     ForEach(model.servers) { state in

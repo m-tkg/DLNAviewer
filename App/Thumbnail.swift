@@ -19,13 +19,18 @@ final class ThumbnailCache: @unchecked Sendable {
 
     /// 動画 URL から 1 フレーム（既定 1 秒地点）を生成する。
     func generate(from url: URL, maxSize: CGFloat = 320) async -> CGImage? {
+        await generate(from: url, at: 1, tolerance: 2, maxSize: maxSize)
+    }
+
+    /// 動画 URL の指定秒のフレームを生成する。
+    func generate(from url: URL, at seconds: Double, tolerance: Double = 1, maxSize: CGFloat = 320) async -> CGImage? {
         let asset = AVURLAsset(url: url)
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
         generator.maximumSize = CGSize(width: maxSize, height: maxSize)
-        generator.requestedTimeToleranceBefore = CMTime(seconds: 2, preferredTimescale: 600)
-        generator.requestedTimeToleranceAfter = CMTime(seconds: 2, preferredTimescale: 600)
-        let time = CMTime(seconds: 1, preferredTimescale: 600)
+        generator.requestedTimeToleranceBefore = CMTime(seconds: tolerance, preferredTimescale: 600)
+        generator.requestedTimeToleranceAfter = CMTime(seconds: tolerance, preferredTimescale: 600)
+        let time = CMTime(seconds: max(seconds, 0), preferredTimescale: 600)
         return try? await generator.image(at: time).image
     }
 }
@@ -76,7 +81,8 @@ struct ThumbnailView: View {
     }
 
     private func loadGenerated() async {
-        guard let url = item.preferredVideoResource?.url else { return }
+        // ダウンロード済みならローカルファイルから生成（オフラインでも可）。
+        guard let url = DownloadManager.shared.preferredURL(for: item) else { return }
         if let cached = ThumbnailCache.shared.image(for: item.id) {
             generated = cached
             return

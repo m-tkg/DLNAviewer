@@ -166,9 +166,9 @@ struct BrowseView: View {
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                     ratingButtons(for: item)
                 }
-                // 長押し（iOS）/ 右クリック（macOS）でも評価できる。
+                // 長押し（iOS）/ 右クリック（macOS）で評価・ダウンロード。
                 .contextMenu {
-                    ratingMenu(for: item)
+                    itemMenu(for: item)
                 }
             }
         }
@@ -190,7 +190,7 @@ struct BrowseView: View {
                             videoTile(item)
                         }
                         .buttonStyle(.plain)
-                        .contextMenu { ratingMenu(for: item) }
+                        .contextMenu { itemMenu(for: item) }
                     }
                 }
             }
@@ -229,6 +229,18 @@ struct BrowseView: View {
                         .background(rating == .like ? .green : .red, in: Circle())
                         .padding(6)
                 }
+                // ダウンロード済みは左下に表示。
+                if DownloadManager.shared.state(for: item).isDownloaded {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.white, .green)
+                        .padding(6)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                }
+            }
+            // ダウンロード中はサムネの下にプログレスバー。
+            if case .downloading(let progress) = DownloadManager.shared.state(for: item) {
+                ProgressView(value: progress)
             }
             Text(item.title)
                 .font(.caption)
@@ -250,6 +262,41 @@ struct BrowseView: View {
             Button { ratings.set(.none, for: item) } label: {
                 Label("クリア", systemImage: "xmark")
             }.tint(.gray)
+        }
+    }
+
+    /// 長押し（コンテキスト）メニュー本体：評価＋ダウンロード。
+    @ViewBuilder
+    private func itemMenu(for item: MediaItem) -> some View {
+        ratingMenu(for: item)
+        Divider()
+        downloadMenu(for: item)
+    }
+
+    /// ダウンロード関連メニュー。
+    @ViewBuilder
+    private func downloadMenu(for item: MediaItem) -> some View {
+        let downloads = DownloadManager.shared
+        switch downloads.state(for: item) {
+        case .downloaded:
+            if let size = downloads.size(for: item) {
+                Text("サイズ: \(formatBytes(size))")
+            }
+            Button(role: .destructive) { downloads.delete(item) } label: {
+                Label("ダウンロードを削除", systemImage: "trash")
+            }
+        case .downloading(let progress):
+            Button { downloads.cancel(item) } label: {
+                Label("ダウンロード中… \(Int(progress * 100))%（キャンセル）", systemImage: "stop.circle")
+            }
+        case .none:
+            Button { downloads.download(item) } label: {
+                if let size = downloads.size(for: item) {
+                    Label("ダウンロード（\(formatBytes(size))）", systemImage: "arrow.down.circle")
+                } else {
+                    Label("ダウンロード", systemImage: "arrow.down.circle")
+                }
+            }
         }
     }
 
@@ -302,7 +349,14 @@ private struct VideoRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            ThumbnailView(item: item, size: thumbSize)
+            VStack(spacing: 3) {
+                ThumbnailView(item: item, size: thumbSize)
+                // ダウンロード中はサムネの下にプログレスバー。
+                if case .downloading(let progress) = DownloadManager.shared.state(for: item) {
+                    ProgressView(value: progress)
+                        .frame(width: thumbSize.width)
+                }
+            }
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.title)
                 if let subtitle {
@@ -310,6 +364,9 @@ private struct VideoRow: View {
                 }
             }
             Spacer(minLength: 0)
+            if DownloadManager.shared.state(for: item).isDownloaded {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            }
             if rating != .none {
                 Image(systemName: rating.symbol)
                     .foregroundStyle(rating == .like ? .green : .red)

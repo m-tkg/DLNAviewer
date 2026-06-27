@@ -69,7 +69,7 @@ public struct MediaContainer: Identifiable, Hashable, Sendable {
 }
 
 /// 再生可能なメディア（DIDL-Lite の `<item>`）。動画 DMP では動画アイテムが対象。
-public struct MediaItem: Identifiable, Hashable, Sendable {
+public struct MediaItem: Identifiable, Hashable, Sendable, Codable {
     public var id: String
     public var parentID: String
     public var title: String
@@ -111,7 +111,7 @@ public struct MediaItem: Identifiable, Hashable, Sendable {
 }
 
 /// `<res>` 要素 = 再生可能なリソース 1 本。
-public struct MediaResource: Hashable, Sendable {
+public struct MediaResource: Hashable, Sendable, Codable {
     public var url: URL
     /// protocolInfo（例: `http-get:*:video/mp4:*`）。
     public var protocolInfo: String?
