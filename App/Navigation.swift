@@ -9,8 +9,10 @@ struct BrowseRoute: Hashable {
 }
 
 /// 再生画面へ遷移するためのナビゲーション値。
+/// 同一フォルダ等の動画リストと開始位置を持ち、前/次の動画へ移動できる。
 struct PlayerRoute: Hashable {
-    var item: MediaItem
+    var items: [MediaItem]
+    var index: Int
 }
 
 /// トップ画面からの遷移先。

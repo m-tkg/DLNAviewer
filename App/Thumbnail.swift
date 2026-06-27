@@ -17,6 +17,10 @@ final class ThumbnailCache: @unchecked Sendable {
         cache.setObject(Box(image), forKey: key as NSString)
     }
 
+    func clearAll() {
+        cache.removeAllObjects()
+    }
+
     /// 動画 URL から 1 フレーム（既定 1 秒地点）を生成する。
     func generate(from url: URL, maxSize: CGFloat = 320) async -> CGImage? {
         await generate(from: url, at: 1, tolerance: 2, maxSize: maxSize)
@@ -45,8 +49,12 @@ struct ThumbnailView: View {
     @State private var generated: CGImage?
 
     var body: some View {
-        Group {
-            if let url = item.thumbnailURL {
+        // 「このシーンをサムネイルにする」で時刻が設定されていれば、その時刻のフレームを優先。
+        let overrideTime = ThumbnailsModel.shared.time(for: item)
+        return Group {
+            if overrideTime != nil {
+                generatedImage
+            } else if let url = item.thumbnailURL {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .success(let image):
@@ -59,19 +67,31 @@ struct ThumbnailView: View {
                         placeholder
                     }
                 }
-            } else if let generated {
-                Image(decorative: generated, scale: 1)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
             } else {
-                placeholder
-                    .task { await loadGenerated() }
+                generatedImage
             }
         }
         .frame(width: size?.width, height: size?.height)
         .clipped()
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary))
+        // 上書き時刻が変わったら作り直す（生成表示が必要な場合のみ）。
+        .task(id: overrideTime) {
+            if overrideTime != nil || item.thumbnailURL == nil {
+                await loadGenerated(at: overrideTime ?? 1)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var generatedImage: some View {
+        if let generated {
+            Image(decorative: generated, scale: 1)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+        } else {
+            placeholder
+        }
     }
 
     private var placeholder: some View {
@@ -80,15 +100,16 @@ struct ThumbnailView: View {
             .foregroundStyle(.secondary)
     }
 
-    private func loadGenerated() async {
+    private func loadGenerated(at seconds: Double) async {
         // ダウンロード済みならローカルファイルから生成（オフラインでも可）。
         guard let url = DownloadManager.shared.preferredURL(for: item) else { return }
-        if let cached = ThumbnailCache.shared.image(for: item.id) {
+        let cacheKey = "\(item.id)#\(Int(seconds))"
+        if let cached = ThumbnailCache.shared.image(for: cacheKey) {
             generated = cached
             return
         }
-        if let image = await ThumbnailCache.shared.generate(from: url) {
-            ThumbnailCache.shared.store(image, for: item.id)
+        if let image = await ThumbnailCache.shared.generate(from: url, at: seconds) {
+            ThumbnailCache.shared.store(image, for: cacheKey)
             generated = image
         }
     }

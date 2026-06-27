@@ -5,7 +5,17 @@ struct SettingsView: View {
     @AppStorage("seekUnitTop") private var seekUnitTop = 60
     @AppStorage("seekUnitBottom") private var seekUnitBottom = 30
     @AppStorage("thumbnailSize") private var thumbnailSize = 1   // 0=小, 1=中, 2=大
+    @AppStorage("skipSeconds") private var skipSeconds = 10
+    @AppStorage("doubleTapSeconds") private var doubleTapSeconds = 30
     @Environment(\.dismiss) private var dismiss
+
+    /// 戻る/進むボタンの秒数（SF Symbol が用意されている値）。
+    private let skipOptions = [10, 15, 30, 45, 60]
+
+    @State private var downloadBytes: Int64 = 0
+    @State private var cacheBytes: Int64 = 0
+    @State private var orphanCount = 0
+    @State private var confirmDeleteDownloads = false
 
     private let options = [5, 10, 15, 30, 45, 60, 90, 120, 180, 300]
 
@@ -25,6 +35,19 @@ struct SettingsView: View {
                     Text("再生画面でコントロール非表示のとき、画面の上半分／下半分を左右スワイプした 1 単位あたりの秒数です。")
                 }
 
+                Section {
+                    Picker("戻る/進むボタン", selection: $skipSeconds) {
+                        ForEach(skipOptions, id: \.self) { Text("\($0)秒").tag($0) }
+                    }
+                    Picker("ダブルタップ", selection: $doubleTapSeconds) {
+                        ForEach(skipOptions, id: \.self) { Text("\($0)秒").tag($0) }
+                    }
+                } header: {
+                    Text("スキップ秒数")
+                } footer: {
+                    Text("再生画面の戻る/進むボタンと、中央より左右のダブルタップでの移動秒数です。")
+                }
+
                 Section("表示") {
                     Picker("サムネイルのサイズ", selection: $thumbnailSize) {
                         Text("小").tag(0)
@@ -34,6 +57,31 @@ struct SettingsView: View {
                     #if os(iOS)
                     .pickerStyle(.segmented)
                     #endif
+                }
+
+                Section {
+                    LabeledContent("ダウンロード", value: formatBytes(downloadBytes))
+                    Button("ダウンロードをすべて削除", role: .destructive) {
+                        confirmDeleteDownloads = true
+                    }
+                    .disabled(downloadBytes == 0)
+
+                    LabeledContent("キャッシュ", value: formatBytes(cacheBytes))
+                    Button("キャッシュをクリア") {
+                        clearCaches()
+                        refreshStorage()
+                    }
+
+                    LabeledContent("孤立データ", value: "\(orphanCount) 件")
+                    Button("孤立データを検出して削除", role: .destructive) {
+                        DownloadManager.shared.removeOrphans()
+                        refreshStorage()
+                    }
+                    .disabled(orphanCount == 0)
+                } header: {
+                    Text("ストレージ")
+                } footer: {
+                    Text("孤立データ＝記録に無いファイルや、ファイルが失われた記録。キャッシュはサムネイルや HTTP の一時データです。")
                 }
             }
             .navigationTitle("設定")
@@ -45,7 +93,28 @@ struct SettingsView: View {
                     Button("完了") { dismiss() }
                 }
             }
+            .task { refreshStorage() }
+            .confirmationDialog("すべてのダウンロードを削除しますか？",
+                                isPresented: $confirmDeleteDownloads, titleVisibility: .visible) {
+                Button("すべて削除", role: .destructive) {
+                    DownloadManager.shared.deleteAll()
+                    refreshStorage()
+                }
+                Button("キャンセル", role: .cancel) {}
+            }
         }
+    }
+
+    private func refreshStorage() {
+        downloadBytes = DownloadManager.shared.totalDownloadedBytes()
+        cacheBytes = Int64(URLCache.shared.currentDiskUsage)
+        orphanCount = DownloadManager.shared.orphanCount()
+    }
+
+    private func clearCaches() {
+        URLCache.shared.removeAllCachedResponses()
+        ThumbnailCache.shared.clearAll()
+        BrowseCache.shared.clearAll()
     }
 
     static func label(_ seconds: Int) -> String {

@@ -143,6 +143,68 @@ final class DownloadManager {
         states[id] = .none
     }
 
+    // MARK: ストレージ管理
+
+    /// ダウンロード済みファイルの合計バイト数（実ファイル基準）。
+    func totalDownloadedBytes() -> Int64 {
+        let dir = Self.downloadsDir()
+        return records.values.reduce(0) { sum, record in
+            let path = dir.appendingPathComponent(record.filename).path
+            let size = ((try? FileManager.default.attributesOfItem(atPath: path)[.size]) as? Int64) ?? record.size
+            return sum + size
+        }
+    }
+
+    /// すべてのダウンロードを削除する（進行中はキャンセル）。
+    func deleteAll() {
+        for task in tasks.values { task.cancel() }
+        tasks.removeAll()
+        observations.removeAll()
+        let dir = Self.downloadsDir()
+        for record in records.values {
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent(record.filename))
+        }
+        records.removeAll()
+        states.removeAll()
+        Self.saveIndex(records)
+    }
+
+    /// 孤立データ件数: 記録に無いファイル ＋ ファイルが存在しない記録。
+    func orphanCount() -> Int {
+        let dir = Self.downloadsDir()
+        let known = Set(records.values.map(\.filename))
+        let onDisk = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+        let orphanFiles = onDisk.filter { !known.contains($0) }.count
+        let orphanRecords = records.values.filter {
+            !FileManager.default.fileExists(atPath: dir.appendingPathComponent($0.filename).path)
+        }.count
+        return orphanFiles + orphanRecords
+    }
+
+    /// 孤立データを削除する。
+    /// - Returns: 削除した件数。
+    @discardableResult
+    func removeOrphans() -> Int {
+        let dir = Self.downloadsDir()
+        let known = Set(records.values.map(\.filename))
+        var removed = 0
+        // 記録に無いファイルを削除。
+        let onDisk = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+        for file in onDisk where !known.contains(file) {
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent(file))
+            removed += 1
+        }
+        // ファイルが存在しない記録を削除。
+        for (id, record) in records
+        where !FileManager.default.fileExists(atPath: dir.appendingPathComponent(record.filename).path) {
+            records[id] = nil
+            states[id] = nil
+            removed += 1
+        }
+        if removed > 0 { Self.saveIndex(records) }
+        return removed
+    }
+
     // MARK: 内部（nonisolated でバックグラウンドからも使用可）
 
     nonisolated static func downloadsDir() -> URL {

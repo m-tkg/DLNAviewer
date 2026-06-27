@@ -56,3 +56,13 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+
+schemes:
+  DLNAviewer:
+    build:
+      targets:
+        DLNAviewer: all
+    run:
+      config: Debug
+    archive:
+      config: Release

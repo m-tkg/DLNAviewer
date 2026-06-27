@@ -70,7 +70,7 @@ struct ServerListView: View {
                 BrowseView(server: route.server, objectID: route.objectID, title: route.title)
             }
             .navigationDestination(for: PlayerRoute.self) { route in
-                PlayerView(item: route.item)
+                PlayerView(items: route.items, startIndex: route.index)
             }
             .sheet(isPresented: $showingAdd) {
                 AddServerView(model: model)
@@ -79,8 +79,17 @@ struct ServerListView: View {
                 SettingsView()
             }
             .task {
+                CloudSync.shared.start()
                 model.reload()
                 await model.discover()
+            }
+            // iCloud 同期で他デバイスの変更を取り込んだらキャッシュを再読込。
+            .onReceive(NotificationCenter.default.publisher(for: .cloudSyncDidUpdate)) { _ in
+                ratings.reload()
+                BookmarksModel.shared.reload()
+                ThumbnailsModel.shared.reload()
+                TagsModel.shared.reload()
+                model.reload()
             }
         }
         .environment(ratings)

@@ -15,6 +15,11 @@ final class RatingsModel {
         self.cache = store.all()
     }
 
+    /// ストアからキャッシュを読み直す（iCloud 同期反映用）。
+    func reload() {
+        cache = store.all()
+    }
+
     func rating(for item: MediaItem) -> Rating {
         cache[item.ratingKey] ?? .none
     }
@@ -26,6 +31,7 @@ final class RatingsModel {
             cache[item.ratingKey] = rating
         }
         store.setRating(rating, for: item.ratingKey)
+        FeedbackCenter.shared.flash(rating)   // 中央にアイコン演出
     }
 }
 

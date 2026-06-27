@@ -12,13 +12,16 @@ import UIKit
 /// iOS は自前のコントロール（再生/停止/シーク）とタイトルを 1 つのオーバーレイにまとめ、
 /// 「コントロール表示中だけタイトルも表示」を満たす。macOS は標準の `VideoPlayer` を使う。
 struct PlayerView: View {
-    let item: MediaItem
+    let items: [MediaItem]
+    let startIndex: Int
+
+    private var safeIndex: Int { min(max(startIndex, 0), max(items.count - 1, 0)) }
 
     var body: some View {
         #if os(iOS)
-        iOSPlayer(item: item)
+        iOSPlayer(items: items, startIndex: safeIndex)
         #else
-        MacPlayer(item: item)
+        MacPlayer(item: items[safeIndex])
         #endif
     }
 }
@@ -82,7 +85,17 @@ private struct MacPlayer: View {
 
 #if os(iOS)
 private struct iOSPlayer: View {
-    let item: MediaItem
+    let items: [MediaItem]
+    @State private var index: Int
+
+    init(items: [MediaItem], startIndex: Int) {
+        self.items = items
+        _index = State(initialValue: startIndex)
+    }
+
+    /// 現在の動画。
+    private var item: MediaItem { items[index] }
+
     @Environment(\.dismiss) private var dismiss
     @Environment(RatingsModel.self) private var ratings
 
@@ -91,6 +104,9 @@ private struct iOSPlayer: View {
     /// 上半分／下半分のスワイプ 1 単位あたりの秒数（設定で変更）。
     @AppStorage("seekUnitTop") private var seekUnitTop = 60
     @AppStorage("seekUnitBottom") private var seekUnitBottom = 30
+    /// 戻る/進むボタンの秒数、ダブルタップの秒数（設定で変更）。
+    @AppStorage("skipSeconds") private var skipSeconds = 10
+    @AppStorage("doubleTapSeconds") private var doubleTapSeconds = 30
 
     // 再生・PiP・描画レイヤーは永続モデルが保持する（画面遷移をまたいで継続）。
     private var player: AVPlayer { PlaybackModel.shared.player }
@@ -104,9 +120,16 @@ private struct iOSPlayer: View {
     @State private var isScrubbing = false
     @State private var hideTask: Task<Void, Never>?
     @State private var showingBookmarks = false
+    // シーク中の音声再生用
+    @State private var scrubAudioActive = false
+    @State private var wasPlayingBeforeScrub = false
 
     // スワイプシーク用
     @State private var viewHeight: CGFloat = 1
+    @State private var viewWidth: CGFloat = 1
+    // ダブルタップスキップのヒント表示
+    @State private var doubleTapHint: (forward: Bool, seconds: Int)?
+    @State private var hintTask: Task<Void, Never>?
     @State private var dragStartTime: Double?
     @State private var dragUnit: Double = 60
     @State private var pendingSeekTarget: Double?
@@ -133,6 +156,16 @@ private struct iOSPlayer: View {
         // シークバー（スライダー）ドラッグ中も動画を追従させる。
         .onChange(of: currentTime) { _, newValue in
             if isScrubbing { seeker.seek(toSeconds: newValue, tolerance: 0.5) }
+        }
+        // 前/次の動画へ移動したら読み込み直す。
+        .onChange(of: index) { _, _ in
+            currentTime = 0
+            duration = 0
+            pendingSeekTarget = nil
+            isScrubbing = false
+            hasSource = true
+            setUp()
+            withAnimation(.easeInOut(duration: 0.2)) { controlsVisible = true }
         }
         .onAppear {
             // インライン表示に入るので PiP は止める（別動画を選んだ場合も旧 PiP を停止）。
@@ -174,25 +207,50 @@ private struct iOSPlayer: View {
             if let target = pendingSeekTarget {
                 SeekBarOverlay(current: target, duration: duration)
             }
+
+            // ダブルタップスキップのヒント
+            if let hint = doubleTapHint {
+                HStack {
+                    if !hint.forward { doubleTapHintLabel(hint) }
+                    Spacer()
+                    if hint.forward { doubleTapHintLabel(hint) }
+                }
+                .padding(.horizontal, 40)
+            }
         }
         .contentShape(Rectangle())
         .background {
-            // 上半分／下半分の判定に使うビュー高さを取得。
+            // 上半分／下半分・左右の判定に使うビューサイズを取得。
             GeometryReader { geo in
                 Color.clear
-                    .onAppear { viewHeight = geo.size.height }
+                    .onAppear { viewHeight = geo.size.height; viewWidth = geo.size.width }
                     .onChange(of: geo.size.height) { _, h in viewHeight = h }
+                    .onChange(of: geo.size.width) { _, w in viewWidth = w }
             }
         }
-        .onTapGesture {
-            withAnimation(.easeInOut(duration: 0.2)) { controlsVisible.toggle() }
-            if controlsVisible { scheduleAutoHide() }
-        }
+        // ダブルタップ: 右側=進む / 左側=戻る。シングルタップ: コントロール表示切替。
+        .gesture(
+            SpatialTapGesture(count: 2)
+                .onEnded { value in handleDoubleTap(at: value.location) }
+                .exclusively(before:
+                    SpatialTapGesture(count: 1).onEnded { _ in
+                        withAnimation(.easeInOut(duration: 0.2)) { controlsVisible.toggle() }
+                        if controlsVisible { scheduleAutoHide() }
+                    }
+                )
+        )
         // コントロール非表示中、左右スワイプでシーク（上半分=60秒/単位・下半分=30秒/単位）。
         .gesture(seekDrag)
-        // 長押しで評価メニュー。
+        // 長押しで評価＋サムネイル設定メニュー。
         .contextMenu {
             RatingMenu(item: item, ratings: ratings)
+            Divider()
+            Button {
+                let time = player.currentTime().seconds
+                if time.isFinite { ThumbnailsModel.shared.set(time, for: item) }
+            } label: {
+                Label("このシーンをサムネイルにする", systemImage: "photo")
+            }
         }
         .statusBarHidden(!controlsVisible)
     }
@@ -239,7 +297,10 @@ private struct iOSPlayer: View {
                                 SceneThumbnailView(item: item, time: time, size: CGSize(width: 100, height: 56))
                                 Text(timeLabel(time)).font(.body.monospacedDigit())
                                 Spacer()
+                                Image(systemName: "play.circle")
+                                    .foregroundStyle(.secondary)
                             }
+                            .contentShape(Rectangle())   // 行全体をタップ領域に
                         }
                         .buttonStyle(.plain)
                         .swipeActions {
@@ -261,7 +322,12 @@ private struct iOSPlayer: View {
             Text(Self.timeString(currentTime)).font(.caption2.monospacedDigit()).foregroundStyle(.white)
             Slider(value: $currentTime, in: 0...max(duration, 0.1)) { editing in
                 isScrubbing = editing
-                if !editing { seeker.seek(toSeconds: currentTime, tolerance: 0) }
+                if editing {
+                    beginScrub()
+                } else {
+                    seeker.seek(toSeconds: currentTime, tolerance: 0)
+                    endScrub()
+                }
             }
             .overlay { bookmarkMarkers }
             Text(Self.timeString(duration)).font(.caption2.monospacedDigit()).foregroundStyle(.white)
@@ -275,6 +341,7 @@ private struct iOSPlayer: View {
     private var controlsOverlay: some View {
         VStack(spacing: 0) {
             topBar
+            tagBar
             Spacer()
             centerControls
             Spacer()
@@ -287,6 +354,27 @@ private struct iOSPlayer: View {
                 startPoint: .top, endPoint: .bottom
             )
             .ignoresSafeArea()
+        }
+    }
+
+    /// この動画に設定されたタグをすべて表示。
+    @ViewBuilder
+    private var tagBar: some View {
+        let tags = TagsModel.shared.tags(for: item)
+        if !tags.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(tags, id: \.self) { tag in
+                        Label(tag, systemImage: "tag")
+                            .font(.caption)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(.white.opacity(0.2), in: Capsule())
+                    }
+                }
+                .padding(.horizontal)
+            }
+            .padding(.bottom, 6)
         }
     }
 
@@ -328,19 +416,37 @@ private struct iOSPlayer: View {
     }
 
     private var centerControls: some View {
-        HStack(spacing: 44) {
-            Button { skip(-10) } label: {
-                Image(systemName: "gobackward.10")
+        HStack(spacing: 28) {
+            Button { goPrev() } label: {
+                Image(systemName: "backward.end.fill").font(.system(size: 28))
+            }
+            .disabled(index <= 0)
+            Button { skip(-Double(skipSeconds)) } label: {
+                Image(systemName: "gobackward.\(skipSeconds)")
             }
             Button { togglePlay() } label: {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                    .frame(width: 60)
+                    .frame(width: 56)
             }
-            Button { skip(10) } label: {
-                Image(systemName: "goforward.10")
+            Button { skip(Double(skipSeconds)) } label: {
+                Image(systemName: "goforward.\(skipSeconds)")
             }
+            Button { goNext() } label: {
+                Image(systemName: "forward.end.fill").font(.system(size: 28))
+            }
+            .disabled(index >= items.count - 1)
         }
-        .font(.system(size: 44))
+        .font(.system(size: 40))
+    }
+
+    private func goPrev() {
+        guard index > 0 else { return }
+        index -= 1
+    }
+
+    private func goNext() {
+        guard index < items.count - 1 else { return }
+        index += 1
     }
 
     private var bottomBar: some View {
@@ -354,8 +460,10 @@ private struct iOSPlayer: View {
                 isScrubbing = editing
                 if editing {
                     hideTask?.cancel()
+                    beginScrub()
                 } else {
                     seeker.seek(toSeconds: currentTime, tolerance: 0)   // 最終位置へ正確にシーク
+                    endScrub()
                     scheduleAutoHide()
                 }
             }
@@ -430,6 +538,25 @@ private struct iOSPlayer: View {
                     toleranceBefore: .zero, toleranceAfter: .zero)
     }
 
+    /// シーク（スクラブ）開始: その位置の音を出すため再生状態にする。
+    private func beginScrub() {
+        guard !scrubAudioActive else { return }
+        scrubAudioActive = true
+        wasPlayingBeforeScrub = (player.timeControlStatus == .playing)
+        player.play()
+        isPlaying = true
+    }
+
+    /// シーク終了: 元の再生/停止状態へ戻す。
+    private func endScrub() {
+        guard scrubAudioActive else { return }
+        scrubAudioActive = false
+        if !wasPlayingBeforeScrub {
+            player.pause()
+            isPlaying = false
+        }
+    }
+
     /// プレイヤー上のドラッグ。
     /// - 横方向（コントロール非表示時）: シーク。上半分=60秒・下半分=30秒を単位に移動。
     /// - 縦方向: 回転。縦状態で上スワイプ→横、横状態で下スワイプ→縦（YouTube ライク）。
@@ -443,6 +570,7 @@ private struct iOSPlayer: View {
                 if dragStartTime == nil {
                     dragStartTime = currentTime
                     dragUnit = Double(value.startLocation.y < viewHeight / 2 ? seekUnitTop : seekUnitBottom)
+                    beginScrub()   // シーク中も音を出す
                 }
                 let start = dragStartTime ?? currentTime
                 let units = (value.translation.width / pointsPerUnit).rounded(.towardZero)
@@ -456,6 +584,7 @@ private struct iOSPlayer: View {
                 let target = pendingSeekTarget
                 dragStartTime = nil
                 pendingSeekTarget = nil
+                endScrub()   // 元の再生/停止状態へ戻す
 
                 if isHorizontal {
                     guard !controlsVisible, let target else { return }
@@ -486,6 +615,29 @@ private struct iOSPlayer: View {
         currentTime = target
         seek(to: target)
         scheduleAutoHide()
+    }
+
+    /// ダブルタップ位置に応じて進む/戻る。
+    private func handleDoubleTap(at location: CGPoint) {
+        let forward = location.x > viewWidth / 2
+        skip(forward ? Double(doubleTapSeconds) : -Double(doubleTapSeconds))
+        doubleTapHint = (forward, doubleTapSeconds)
+        hintTask?.cancel()
+        hintTask = Task {
+            try? await Task.sleep(for: .seconds(0.6))
+            if !Task.isCancelled { doubleTapHint = nil }
+        }
+    }
+
+    private func doubleTapHintLabel(_ hint: (forward: Bool, seconds: Int)) -> some View {
+        VStack(spacing: 4) {
+            Image(systemName: hint.forward ? "goforward" : "gobackward")
+                .font(.system(size: 40))
+            Text("\(hint.seconds)秒").font(.headline)
+        }
+        .foregroundStyle(.white)
+        .padding(20)
+        .background(.black.opacity(0.5), in: Circle())
     }
 
     /// 一定時間操作が無ければコントロール（＝タイトルも）を隠す。停止中は隠さない。

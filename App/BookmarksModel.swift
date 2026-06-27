@@ -16,6 +16,11 @@ final class BookmarksModel {
         self.cache = store.all()
     }
 
+    /// ストアからキャッシュを読み直す（iCloud 同期反映用）。
+    func reload() {
+        cache = store.all()
+    }
+
     func bookmarks(for item: MediaItem) -> [Double] {
         (cache[item.id] ?? []).sorted()
     }

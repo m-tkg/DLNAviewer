@@ -12,7 +12,7 @@ struct DownloadsView: View {
                 ContentUnavailableView("ダウンロードはありません", systemImage: "arrow.down.circle")
             } else {
                 List(items) { item in
-                    NavigationLink(value: PlayerRoute(item: item)) {
+                    NavigationLink(value: PlayerRoute(items: items, index: items.firstIndex(of: item) ?? 0)) {
                         HStack(spacing: 12) {
                             ThumbnailView(item: item, size: CGSize(width: 68, height: 38))
                             VStack(alignment: .leading, spacing: 2) {

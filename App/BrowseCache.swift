@@ -25,4 +25,8 @@ final class BrowseCache {
     func invalidate(server: MediaServer, objectID: String) {
         cache[key(server: server, objectID: objectID)] = nil
     }
+
+    func clearAll() {
+        cache.removeAll()
+    }
 }

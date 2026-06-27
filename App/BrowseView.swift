@@ -18,7 +18,10 @@ struct BrowseView: View {
     @State private var isLoading = true
     @State private var error: String?
     @State private var searchText = ""
+    @State private var searchTags: [TagToken] = []
     @State private var showingSettings = false
+    @State private var showingTagFilter = false
+    @State private var tagEditItem: MediaItem?
 
     private let client = ContentDirectoryClient()
 
@@ -52,8 +55,11 @@ struct BrowseView: View {
                 list
             }
         }
+        .safeAreaInset(edge: .top, spacing: 0) { searchBar }
         .navigationTitle(title)
-        .searchable(text: $searchText, prompt: "検索（正規表現可）")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
@@ -86,22 +92,103 @@ struct BrowseView: View {
         .sheet(isPresented: $showingSettings) {
             SettingsView()
         }
+        .sheet(item: $tagEditItem) { item in
+            TagEditorView(item: item)
+        }
+        .sheet(isPresented: $showingTagFilter) {
+            TagFilterView { tag in
+                if !searchTags.contains(where: { $0.name.lowercased() == tag.lowercased() }) {
+                    searchTags.append(TagToken(name: tag))
+                }
+            }
+        }
         .task { await load() }
     }
 
-    /// 表示対象。コンテナ（フォルダ）は評価フィルタ対象外、動画アイテムは評価フィルタを適用。
-    /// 検索文字列があれば名前で絞り込む（フォルダ・ファイル両方）。
-    private var displayObjects: [DIDLObject] {
-        objects.filter { object in
-            switch object {
-            case .container(let container):
-                return matchesSearch(container.title)
-            case .item(let item):
-                return item.isVideo
-                    && ratingAllowed(ratings.rating(for: item))
-                    && matchesSearch(item.title)
+    /// 検索フォーム＋右隣のタグ追加ボタン（上部固定）。
+    private var searchBar: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    TextField("検索（正規表現可）", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .autocorrectionDisabled()
+                        #if os(iOS)
+                        .textInputAutocapitalization(.never)
+                        #endif
+                    if !searchText.isEmpty {
+                        Button { searchText = "" } label: {
+                            Image(systemName: "xmark.circle.fill")
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(8)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
+
+                // 検索フォームの右隣: タグ指定ボタン（検索・リネーム・削除つき）。
+                Button {
+                    showingTagFilter = true
+                } label: {
+                    Image(systemName: "plus.circle.fill").font(.title2)
+                }
+                .buttonStyle(.plain)
+            }
+
+            // 選択中タグのチップ（タップで解除）。
+            if !searchTags.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(searchTags) { token in
+                            HStack(spacing: 4) {
+                                Text("#\(token.name)").font(.caption)
+                                Image(systemName: "xmark.circle.fill").font(.caption2)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(.tint.opacity(0.2), in: Capsule())
+                            .onTapGesture { searchTags.removeAll { $0.id == token.id } }
+                        }
+                    }
+                }
             }
         }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .background(.bar)
+    }
+
+    /// 表示対象。
+    /// - タグ指定があればそのタグを持つ動画に絞り込み（フォルダは非表示）。
+    /// - キーワードがあればその中から名前で検索。
+    /// - 評価フィルタは動画に適用。
+    private var displayObjects: [DIDLObject] {
+        let tagFilter = Set(searchTags.map { $0.name.lowercased() })
+        return objects.filter { object in
+            switch object {
+            case .container(let container):
+                // タグ指定中はフォルダ（タグを持たない）を出さない。
+                return tagFilter.isEmpty && matchesSearch(container.title)
+            case .item(let item):
+                guard item.isVideo, ratingAllowed(ratings.rating(for: item)) else { return false }
+                let itemTags = Set(TagsModel.shared.tags(for: item).map { $0.lowercased() })
+                return tagFilter.isSubset(of: itemTags) && matchesSearch(item.title)
+            }
+        }
+    }
+
+    /// 表示中の動画アイテム（前/次移動のプレイリスト）。
+    private var videoItems: [MediaItem] {
+        displayObjects.compactMap { object in
+            if case .item(let item) = object { return item }
+            return nil
+        }
+    }
+
+    private func playerRoute(for item: MediaItem) -> PlayerRoute {
+        PlayerRoute(items: videoItems, index: videoItems.firstIndex(of: item) ?? 0)
     }
 
     private func ratingAllowed(_ rating: Rating) -> Bool {
@@ -123,7 +210,7 @@ struct BrowseView: View {
     }
 
     private var isSearching: Bool {
-        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !searchTags.isEmpty
     }
 
     /// いずれかのフィルタが無効ならフィルタ中とみなす。
@@ -159,7 +246,7 @@ struct BrowseView: View {
                     Label(container.title, systemImage: "folder")
                 }
             case .item(let item):
-                NavigationLink(value: PlayerRoute(item: item)) {
+                NavigationLink(value: playerRoute(for: item)) {
                     VideoRow(item: item, rating: ratings.rating(for: item), thumbSize: listThumbSize)
                 }
                 // 左スワイプ（trailing）で評価を選択。
@@ -186,7 +273,7 @@ struct BrowseView: View {
                         }
                         .buttonStyle(.plain)
                     case .item(let item):
-                        NavigationLink(value: PlayerRoute(item: item)) {
+                        NavigationLink(value: playerRoute(for: item)) {
                             videoTile(item)
                         }
                         .buttonStyle(.plain)
@@ -269,6 +356,9 @@ struct BrowseView: View {
     @ViewBuilder
     private func itemMenu(for item: MediaItem) -> some View {
         ratingMenu(for: item)
+        Button { tagEditItem = item } label: {
+            Label("タグを編集…", systemImage: "tag")
+        }
         Divider()
         downloadMenu(for: item)
     }
@@ -341,6 +431,12 @@ struct BrowseView: View {
     }
 }
 
+/// 検索フォームのタグトークン。
+struct TagToken: Identifiable, Hashable {
+    var id: String { name }
+    let name: String
+}
+
 /// 動画アイテム 1 行。
 private struct VideoRow: View {
     let item: MediaItem
@@ -361,6 +457,13 @@ private struct VideoRow: View {
                 Text(item.title)
                 if let subtitle {
                     Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                }
+                let tags = TagsModel.shared.tags(for: item)
+                if !tags.isEmpty {
+                    Text(tags.map { "#\($0)" }.joined(separator: " "))
+                        .font(.caption2)
+                        .foregroundStyle(.tint)
+                        .lineLimit(1)
                 }
             }
             Spacer(minLength: 0)
