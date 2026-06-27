@@ -126,10 +126,12 @@ private struct iOSPlayer: View {
 
     // スワイプシーク用
     @State private var viewHeight: CGFloat = 1
-    @State private var viewWidth: CGFloat = 1
     // ダブルタップスキップのヒント表示
     @State private var doubleTapHint: (forward: Bool, seconds: Int)?
     @State private var hintTask: Task<Void, Never>?
+    // 現在シーンの解析・画像検索
+    @State private var analysisImage: CapturedImage?
+    @State private var shareImage: CapturedImage?
     @State private var dragStartTime: Double?
     @State private var dragUnit: Double = 60
     @State private var pendingSeekTarget: Double?
@@ -191,6 +193,8 @@ private struct iOSPlayer: View {
             Color.black.ignoresSafeArea()
             if hasSource {
                 PlayerLayerView().ignoresSafeArea()
+                // コントロールの下にタップ層（シングル=表示切替・ダブル=左右スキップ）。
+                tapLayer.ignoresSafeArea()
                 if controlsVisible {
                     controlsOverlay.transition(.opacity)
                 }
@@ -220,28 +224,16 @@ private struct iOSPlayer: View {
         }
         .contentShape(Rectangle())
         .background {
-            // 上半分／下半分・左右の判定に使うビューサイズを取得。
+            // 上半分／下半分の判定に使うビュー高さを取得。
             GeometryReader { geo in
                 Color.clear
-                    .onAppear { viewHeight = geo.size.height; viewWidth = geo.size.width }
+                    .onAppear { viewHeight = geo.size.height }
                     .onChange(of: geo.size.height) { _, h in viewHeight = h }
-                    .onChange(of: geo.size.width) { _, w in viewWidth = w }
             }
         }
-        // ダブルタップ: 右側=進む / 左側=戻る。シングルタップ: コントロール表示切替。
-        .gesture(
-            SpatialTapGesture(count: 2)
-                .onEnded { value in handleDoubleTap(at: value.location) }
-                .exclusively(before:
-                    SpatialTapGesture(count: 1).onEnded { _ in
-                        withAnimation(.easeInOut(duration: 0.2)) { controlsVisible.toggle() }
-                        if controlsVisible { scheduleAutoHide() }
-                    }
-                )
-        )
         // コントロール非表示中、左右スワイプでシーク（上半分=60秒/単位・下半分=30秒/単位）。
         .gesture(seekDrag)
-        // 長押しで評価＋サムネイル設定メニュー。
+        // 長押しで評価＋サムネイル設定＋シーン解析メニュー。
         .contextMenu {
             RatingMenu(item: item, ratings: ratings)
             Divider()
@@ -251,8 +243,36 @@ private struct iOSPlayer: View {
             } label: {
                 Label("このシーンをサムネイルにする", systemImage: "photo")
             }
+            Divider()
+            Button {
+                Task { if let image = await captureFrame() { analysisImage = CapturedImage(image: image) } }
+            } label: {
+                Label("このシーンを調べる", systemImage: "sparkles")
+            }
+            Button {
+                Task { if let image = await captureFrame() { shareImage = CapturedImage(image: image) } }
+            } label: {
+                Label("このシーンを画像検索…", systemImage: "magnifyingglass")
+            }
+        }
+        .sheet(item: $analysisImage) { captured in
+            SceneAnalysisView(image: captured.image)
+        }
+        .sheet(item: $shareImage) { captured in
+            ShareSheet(items: [captured.image])
         }
         .statusBarHidden(!controlsVisible)
+    }
+
+    /// 現在の再生位置のフレームを高解像度で取得。
+    private func captureFrame() async -> UIImage? {
+        guard let url = DownloadManager.shared.preferredURL(for: item) else { return nil }
+        let t = player.currentTime().seconds
+        let seconds = t.isFinite ? t : currentTime
+        guard let cg = await ThumbnailCache.shared.generate(from: url, at: seconds, tolerance: 0.5, maxSize: 1280) else {
+            return nil
+        }
+        return UIImage(cgImage: cg)
     }
 
     /// ブックマーク一覧モード：上に一覧、画面下に動画（小窓）。
@@ -617,16 +637,32 @@ private struct iOSPlayer: View {
         scheduleAutoHide()
     }
 
-    /// ダブルタップ位置に応じて進む/戻る。
-    private func handleDoubleTap(at location: CGPoint) {
-        let forward = location.x > viewWidth / 2
-        skip(forward ? Double(doubleTapSeconds) : -Double(doubleTapSeconds))
-        doubleTapHint = (forward, doubleTapSeconds)
-        hintTask?.cancel()
-        hintTask = Task {
-            try? await Task.sleep(for: .seconds(0.6))
-            if !Task.isCancelled { doubleTapHint = nil }
+    /// コントロールの下に敷くタップ層（左右2分割）。
+    /// シングルタップ＝コントロール表示切替、ダブルタップ＝左=戻る/右=進む。
+    /// `onTapGesture` なのでボタン（上層）の操作を妨げない。
+    private var tapLayer: some View {
+        HStack(spacing: 0) {
+            tapZone(forward: false)
+            tapZone(forward: true)
         }
+    }
+
+    private func tapZone(forward: Bool) -> some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) {
+                skip(forward ? Double(doubleTapSeconds) : -Double(doubleTapSeconds))
+                doubleTapHint = (forward, doubleTapSeconds)
+                hintTask?.cancel()
+                hintTask = Task {
+                    try? await Task.sleep(for: .seconds(0.6))
+                    if !Task.isCancelled { doubleTapHint = nil }
+                }
+            }
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: 0.2)) { controlsVisible.toggle() }
+                if controlsVisible { scheduleAutoHide() }
+            }
     }
 
     private func doubleTapHintLabel(_ hint: (forward: Bool, seconds: Int)) -> some View {
