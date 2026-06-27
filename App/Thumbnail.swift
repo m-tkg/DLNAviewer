@@ -34,7 +34,8 @@ final class ThumbnailCache: @unchecked Sendable {
 /// サーバー提供のサムネイル（albumArtURI / 画像 res）を優先し、無ければ動画から生成する。
 struct ThumbnailView: View {
     let item: MediaItem
-    var size: CGSize = CGSize(width: 64, height: 40)
+    /// nil の場合は親から与えられたフレームいっぱいに表示する。
+    var size: CGSize? = nil
 
     @State private var generated: CGImage?
 
@@ -44,7 +45,7 @@ struct ThumbnailView: View {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .success(let image):
-                        image.resizable().aspectRatio(contentMode: .fill)
+                        image.resizable().aspectRatio(contentMode: .fit)
                     case .failure:
                         placeholder
                     case .empty:
@@ -56,13 +57,14 @@ struct ThumbnailView: View {
             } else if let generated {
                 Image(decorative: generated, scale: 1)
                     .resizable()
-                    .aspectRatio(contentMode: .fill)
+                    .aspectRatio(contentMode: .fit)
             } else {
                 placeholder
                     .task { await loadGenerated() }
             }
         }
-        .frame(width: size.width, height: size.height)
+        .frame(width: size?.width, height: size?.height)
+        .clipped()
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary))
     }

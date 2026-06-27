@@ -41,6 +41,8 @@ targets:
       properties:
         CFBundleDisplayName: DLNAviewer
         LSApplicationCategoryType: public.app-category.video
+        UIBackgroundModes:
+          - audio
         NSLocalNetworkUsageDescription: "同一ネットワーク上の DLNA メディアサーバーを探索・接続するために使用します。"
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true

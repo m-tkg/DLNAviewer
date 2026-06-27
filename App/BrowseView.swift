@@ -8,10 +8,17 @@ struct BrowseView: View {
     let title: String
 
     @Environment(RatingsModel.self) private var ratings
+    @AppStorage("browseGridMode") private var gridMode = false
+    // 評価フィルタ（ファイルのみ対象。フォルダは常に表示）。
+    @AppStorage("filterLike") private var filterLike = true
+    @AppStorage("filterDislike") private var filterDislike = true
+    @AppStorage("filterNone") private var filterNone = true
 
     @State private var objects: [DIDLObject] = []
     @State private var isLoading = true
     @State private var error: String?
+    @State private var searchText = ""
+    @State private var showingSettings = false
 
     private let client = ContentDirectoryClient()
 
@@ -25,25 +32,122 @@ struct BrowseView: View {
                 } description: {
                     Text(error)
                 } actions: {
-                    Button("再試行") { Task { await load() } }
+                    Button("再試行") { Task { await load(force: true) } }
                 }
             } else if displayObjects.isEmpty {
-                ContentUnavailableView("項目がありません", systemImage: "tray")
+                if isSearching {
+                    ContentUnavailableView.search(text: searchText)
+                } else if isFiltering {
+                    ContentUnavailableView {
+                        Label("該当する項目がありません", systemImage: "line.3.horizontal.decrease.circle")
+                    } description: {
+                        Text("評価フィルタを変更してください。")
+                    }
+                } else {
+                    ContentUnavailableView("項目がありません", systemImage: "tray")
+                }
+            } else if gridMode {
+                grid
             } else {
                 list
             }
         }
         .navigationTitle(title)
+        .searchable(text: $searchText, prompt: "検索（正規表現可）")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Toggle(isOn: $filterLike) { Label("Like", systemImage: "hand.thumbsup") }
+                    Toggle(isOn: $filterDislike) { Label("Dislike", systemImage: "hand.thumbsdown") }
+                    Toggle(isOn: $filterNone) { Label("評価なし", systemImage: "minus") }
+                } label: {
+                    Label("フィルタ",
+                          systemImage: isFiltering
+                            ? "line.3.horizontal.decrease.circle.fill"
+                            : "line.3.horizontal.decrease.circle")
+                }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    gridMode.toggle()
+                } label: {
+                    Label(gridMode ? "リスト表示" : "アイコン表示",
+                          systemImage: gridMode ? "list.bullet" : "square.grid.2x2")
+                }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showingSettings = true
+                } label: {
+                    Label("設定", systemImage: "gearshape")
+                }
+            }
+        }
+        .sheet(isPresented: $showingSettings) {
+            SettingsView()
+        }
         .task { await load() }
     }
 
-    /// 表示対象＝コンテナと動画アイテムのみ（動画 DMP のため音声等は除外）。
+    /// 表示対象。コンテナ（フォルダ）は評価フィルタ対象外、動画アイテムは評価フィルタを適用。
+    /// 検索文字列があれば名前で絞り込む（フォルダ・ファイル両方）。
     private var displayObjects: [DIDLObject] {
         objects.filter { object in
             switch object {
-            case .container: return true
-            case .item(let item): return item.isVideo
+            case .container(let container):
+                return matchesSearch(container.title)
+            case .item(let item):
+                return item.isVideo
+                    && ratingAllowed(ratings.rating(for: item))
+                    && matchesSearch(item.title)
             }
+        }
+    }
+
+    private func ratingAllowed(_ rating: Rating) -> Bool {
+        switch rating {
+        case .like: return filterLike
+        case .dislike: return filterDislike
+        case .none: return filterNone
+        }
+    }
+
+    /// 検索文字列にマッチするか。正規表現として解釈し、無効なら部分一致にフォールバック。
+    private func matchesSearch(_ title: String) -> Bool {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return true }
+        if let regex = try? Regex(query).ignoresCase() {
+            return title.contains(regex)
+        }
+        return title.localizedCaseInsensitiveContains(query)
+    }
+
+    private var isSearching: Bool {
+        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// いずれかのフィルタが無効ならフィルタ中とみなす。
+    private var isFiltering: Bool {
+        !(filterLike && filterDislike && filterNone)
+    }
+
+    @AppStorage("thumbnailSize") private var thumbnailSize = 1
+
+    /// リスト行のサムネイルサイズ（16:9・3段階）。
+    private var listThumbSize: CGSize {
+        switch thumbnailSize {
+        case 0: return CGSize(width: 52, height: 29)
+        case 2: return CGSize(width: 96, height: 54)
+        default: return CGSize(width: 68, height: 38)
+        }
+    }
+
+    /// グリッド列の最小幅（3段階）。
+    private var gridMinWidth: CGFloat {
+        switch thumbnailSize {
+        case 0: return 110
+        case 2: return 230
+        default: return 160
         }
     }
 
@@ -56,7 +160,7 @@ struct BrowseView: View {
                 }
             case .item(let item):
                 NavigationLink(value: PlayerRoute(item: item)) {
-                    VideoRow(item: item, rating: ratings.rating(for: item))
+                    VideoRow(item: item, rating: ratings.rating(for: item), thumbSize: listThumbSize)
                 }
                 // 左スワイプ（trailing）で評価を選択。
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -67,6 +171,68 @@ struct BrowseView: View {
                     ratingMenu(for: item)
                 }
             }
+        }
+        .refreshable { await load(force: true) }
+    }
+
+    private var grid: some View {
+        ScrollView {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: gridMinWidth), spacing: 16)], spacing: 16) {
+                ForEach(displayObjects) { object in
+                    switch object {
+                    case .container(let container):
+                        NavigationLink(value: BrowseRoute(server: server, objectID: container.id, title: container.title)) {
+                            folderTile(container)
+                        }
+                        .buttonStyle(.plain)
+                    case .item(let item):
+                        NavigationLink(value: PlayerRoute(item: item)) {
+                            videoTile(item)
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu { ratingMenu(for: item) }
+                    }
+                }
+            }
+            .padding()
+        }
+        .refreshable { await load(force: true) }
+    }
+
+    private func folderTile(_ container: MediaContainer) -> some View {
+        VStack(spacing: 6) {
+            Image(systemName: "folder.fill")
+                .font(.system(size: 40))
+                .foregroundStyle(.tint)
+                .frame(maxWidth: .infinity)
+                .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+            Text(container.title)
+                .font(.caption)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+        }
+    }
+
+    private func videoTile(_ item: MediaItem) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ZStack(alignment: .topTrailing) {
+                ThumbnailView(item: item)
+                    .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                    .frame(maxWidth: .infinity)
+                let rating = ratings.rating(for: item)
+                if rating != .none {
+                    Image(systemName: rating.symbol)
+                        .font(.caption)
+                        .foregroundStyle(.white)
+                        .padding(5)
+                        .background(rating == .like ? .green : .red, in: Circle())
+                        .padding(6)
+                }
+            }
+            Text(item.title)
+                .font(.caption)
+                .lineLimit(2)
         }
     }
 
@@ -101,7 +267,15 @@ struct BrowseView: View {
         }
     }
 
-    private func load() async {
+    /// フォルダの中身を読み込む。`force == false` ならキャッシュを使う。
+    private func load(force: Bool = false) async {
+        // キャッシュ利用（再読み込みでない場合）。
+        if !force, let cached = BrowseCache.shared.objects(server: server, objectID: objectID) {
+            objects = cached
+            isLoading = false
+            error = nil
+            return
+        }
         isLoading = true
         error = nil
         guard let controlURL = server.contentDirectoryControlURL else {
@@ -112,6 +286,7 @@ struct BrowseView: View {
         do {
             let result = try await client.browse(controlURL: controlURL, objectID: objectID)
             objects = result.objects
+            BrowseCache.shared.store(result.objects, server: server, objectID: objectID)
         } catch {
             self.error = LibraryModel.message(for: error)
         }
@@ -123,10 +298,11 @@ struct BrowseView: View {
 private struct VideoRow: View {
     let item: MediaItem
     let rating: Rating
+    var thumbSize: CGSize = CGSize(width: 68, height: 38)
 
     var body: some View {
         HStack(spacing: 12) {
-            ThumbnailView(item: item, size: CGSize(width: 64, height: 40))
+            ThumbnailView(item: item, size: thumbSize)
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.title)
                 if let subtitle {

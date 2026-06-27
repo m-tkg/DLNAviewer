@@ -6,6 +6,16 @@ struct ServerListView: View {
     @State private var model = LibraryModel()
     @State private var ratings = RatingsModel()
     @State private var showingAdd = false
+    @State private var showingSettings = false
+    @Environment(\.scenePhase) private var scenePhase
+
+    private var settingsPlacement: ToolbarItemPlacement {
+        #if os(iOS)
+        .topBarTrailing
+        #else
+        .automatic
+        #endif
+    }
 
     var body: some View {
         NavigationStack {
@@ -24,6 +34,13 @@ struct ServerListView: View {
             }
             .navigationTitle("DLNA サーバー")
             .toolbar {
+                ToolbarItem(placement: settingsPlacement) {
+                    Button {
+                        showingSettings = true
+                    } label: {
+                        Label("設定", systemImage: "gearshape")
+                    }
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         showingAdd = true
@@ -52,12 +69,21 @@ struct ServerListView: View {
             .sheet(isPresented: $showingAdd) {
                 AddServerView(model: model)
             }
+            .sheet(isPresented: $showingSettings) {
+                SettingsView()
+            }
             .task {
                 model.reload()
                 await model.discover()
             }
         }
         .environment(ratings)
+        // 他アプリ等から戻った時（前面化）に PiP が起動中なら自動解除する。
+        .onChange(of: scenePhase) { _, phase in
+            #if os(iOS)
+            if phase == .active { PlaybackModel.shared.stopPiP() }
+            #endif
+        }
     }
 
     private var serverList: some View {
