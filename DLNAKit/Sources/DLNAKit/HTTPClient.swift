@@ -4,8 +4,18 @@ import Foundation
 public enum HTTPRetry {
     /// リトライする価値のある一時的・接続系の `URLError` か。
     public static func isRetriable(_ error: Error) -> Bool {
-        // TODO: 実装する（現在はスタブ）。
-        false
+        guard let urlError = error as? URLError else { return false }
+        switch urlError.code {
+        case .notConnectedToInternet,   // -1009
+             .networkConnectionLost,     // -1005
+             .timedOut,                  // -1001
+             .cannotConnectToHost,       // -1004
+             .cannotFindHost,            // -1003
+             .dnsLookupFailed:           // -1006
+            return true
+        default:
+            return false
+        }
     }
 }
 
