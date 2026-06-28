@@ -51,12 +51,16 @@ enum TagSuggester {
                     sceneLabels: sceneLabels
                 )
                 // iOS 27+: フレーム画像があれば直接モデルへ渡す（マルチモーダル）。
+                // Attachment は macOS 27 / iOS 27 SDK 専用のため、SDK バージョンで分岐する
+                // （古い SDK でビルドする CI 等では除外。実行時も macOS 26 では到達しない）。
+                #if canImport(FoundationModels, _version: 2.0)
                 if #available(iOS 27.0, macOS 27.0, *), !frames.isEmpty {
                     if let result = await suggestMultimodal(prompt: prompt, frames: frames, exclude: existing) {
                         return result
                     }
                     // 失敗時はテキスト経路へフォールバック。
                 }
+                #endif
                 // タグ付け用途のモデル＋緩和ガードレール（誤検知を減らす。完全無効化は不可）。
                 let model = SystemLanguageModel(useCase: .contentTagging, guardrails: .permissiveContentTransformations)
                 let session = LanguageModelSession(model: model)
@@ -78,7 +82,7 @@ enum TagSuggester {
         return TagSuggestionResult(message: "この端末では AI 提案を利用できません。")
     }
 
-    #if canImport(FoundationModels)
+    #if canImport(FoundationModels, _version: 2.0)
     /// iOS 27+: フレーム画像を直接モデルへ渡してタグを生成する。
     @available(iOS 27.0, macOS 27.0, *)
     private static func suggestMultimodal(
