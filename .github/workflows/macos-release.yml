@@ -7,6 +7,12 @@ name: macOS Release
 on:
   push:
     branches: [main]
+    # ドキュメント等のソース以外だけの変更ではビルドしない（混在 push は実行）。
+    paths-ignore:
+      - "**/*.md"
+      - LICENSE
+      - .gitignore
+      - .github/**/*.md
   workflow_dispatch:
 
 permissions:
