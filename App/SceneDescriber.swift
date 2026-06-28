@@ -22,7 +22,9 @@ enum SceneDescriber {
     static func describe(_ image: UIImage) async -> String? {
         guard let cgImage = image.cgImage else { return nil }
 
-        #if canImport(FoundationModels)
+        // Attachment は macOS 27 / iOS 27 SDK 専用のため、SDK バージョンで分岐する
+        // （古い SDK でビルドする CI 等では除外）。
+        #if canImport(FoundationModels, _version: 2.0)
         // iOS 27+: 画像を直接モデルへ渡してマルチモーダルに説明する（最も具体的）。
         if #available(iOS 27.0, *),
            case .available = SystemLanguageModel.default.availability,
@@ -50,7 +52,7 @@ enum SceneDescriber {
         return signals.fallbackText
     }
 
-    #if canImport(FoundationModels)
+    #if canImport(FoundationModels, _version: 2.0)
     /// iOS 27+ のマルチモーダル入力で、画像を直接モデルに渡して説明させる。
     @available(iOS 27.0, *)
     private static func describeMultimodal(
