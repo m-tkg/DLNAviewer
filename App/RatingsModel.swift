@@ -31,12 +31,16 @@ final class RatingsModel {
         FeedbackCenter.shared.flash(rating)   // 中央にアイコン演出
     }
 
-    /// タイトルベースの保存キー。旧 id キーにデータが残っていれば一度だけ移行する。
+    /// 同一性キー。旧スキーム（タイトルのみ／object id）のデータが残っていれば一度だけ移行する。
     private func key(for item: MediaItem) -> String {
         let key = item.persistentKey
-        if key != item.id, cache[key] == nil, let legacy = cache[item.id] {
-            cache[key] = legacy
-            store.setRating(legacy, for: key)
+        guard cache[key] == nil else { return key }
+        for legacy in item.legacyPersistentKeys where legacy != key {
+            if let value = cache[legacy] {
+                cache[key] = value
+                store.setRating(value, for: key)
+                break
+            }
         }
         return key
     }

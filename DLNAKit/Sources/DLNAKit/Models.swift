@@ -109,14 +109,26 @@ public struct MediaItem: Identifiable, Hashable, Sendable, Codable {
     /// upnp:class が動画かどうか。
     public var isVideo: Bool { upnpClass.contains("videoItem") }
 
-    /// 評価・ブックマーク・タグ・サムネ上書きなど、**永続データの同一性キー**。
-    /// サーバーの object id が変わってもタイトルが同じなら同一動画として扱うため、
-    /// タイトル（前後空白を除去）を使う。空タイトルのときだけ id にフォールバックする。
-    /// 注意: 別フォルダの同名動画は同一として扱われる。
-    public var persistentKey: String {
+    /// タイトル（前後空白を除去）。空なら id。永続キーの基礎。
+    private var titleBase: String {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? id : trimmed
     }
+
+    /// 評価・ブックマーク・タグ・サムネ上書きなど、**永続データの同一性キー**。
+    /// サーバーの object id が変わっても、**タイトル＋再生時間＋ファイルサイズ**が同じなら
+    /// 同一動画として扱う。再生時間・サイズはサーバーの `res@duration` / `res@size` を使い、
+    /// 値が無い場合はその要素を省く（無ければタイトルのみに自然劣化）。
+    /// 注意: タイトル・尺・サイズがすべて一致する別ファイルは同一として扱われる。
+    public var persistentKey: String {
+        var parts = [titleBase]
+        if let dur = resources.first?.durationSeconds { parts.append("d\(Int(dur.rounded()))") }
+        if let size = resources.first?.size { parts.append("s\(size)") }
+        return parts.joined(separator: "|")
+    }
+
+    /// 旧スキームの保存キー（移行元候補）。新しい順: タイトルのみ → object id。
+    public var legacyPersistentKeys: [String] { [titleBase, id] }
 }
 
 /// `<res>` 要素 = 再生可能なリソース 1 本。
