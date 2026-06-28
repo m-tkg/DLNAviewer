@@ -22,22 +22,32 @@ final class TagsModel {
     }
 
     func tags(for item: MediaItem) -> [String] {
-        (cache[item.id] ?? []).sorted()
+        (cache[key(for: item)] ?? []).sorted()
     }
 
     func add(_ tag: String, for item: MediaItem) {
         let t = tag.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return }
-        var list = cache[item.id] ?? []
+        var list = cache[key(for: item)] ?? []
         guard !list.contains(where: { $0.lowercased() == t.lowercased() }) else { return }
         list.append(t)
         commit(list, for: item)
     }
 
     func remove(_ tag: String, for item: MediaItem) {
-        var list = cache[item.id] ?? []
+        var list = cache[key(for: item)] ?? []
         list.removeAll { $0.lowercased() == tag.lowercased() }
         commit(list, for: item)
+    }
+
+    /// タイトルベースの保存キー。旧 id キーにデータが残っていれば一度だけ移行する。
+    private func key(for item: MediaItem) -> String {
+        let key = item.persistentKey
+        if key != item.id, cache[key] == nil, let legacy = cache[item.id] {
+            cache[key] = legacy
+            store.setTags(legacy, for: key)
+        }
+        return key
     }
 
     /// すべての動画で使われているタグ（ユニーク・昇順）。自動補完用。
@@ -53,8 +63,9 @@ final class TagsModel {
     }
 
     private func commit(_ list: [String], for item: MediaItem) {
-        cache[item.id] = list.isEmpty ? nil : list.sorted()
-        store.setTags(list, for: item.id)
+        let k = key(for: item)
+        cache[k] = list.isEmpty ? nil : list.sorted()
+        store.setTags(list, for: k)
     }
 
     // MARK: グローバル操作（タグ管理）

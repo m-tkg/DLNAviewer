@@ -21,23 +21,25 @@ final class RatingsModel {
     }
 
     func rating(for item: MediaItem) -> Rating {
-        cache[item.ratingKey] ?? .none
+        cache[key(for: item)] ?? .none
     }
 
     func set(_ rating: Rating, for item: MediaItem) {
-        if rating == .none {
-            cache[item.ratingKey] = nil
-        } else {
-            cache[item.ratingKey] = rating
-        }
-        store.setRating(rating, for: item.ratingKey)
+        let k = key(for: item)
+        cache[k] = (rating == .none) ? nil : rating
+        store.setRating(rating, for: k)
         FeedbackCenter.shared.flash(rating)   // 中央にアイコン演出
     }
-}
 
-extension MediaItem {
-    /// 評価の保存キー。UPnP の object id は IP 変化に影響されず安定。
-    var ratingKey: String { id }
+    /// タイトルベースの保存キー。旧 id キーにデータが残っていれば一度だけ移行する。
+    private func key(for item: MediaItem) -> String {
+        let key = item.persistentKey
+        if key != item.id, cache[key] == nil, let legacy = cache[item.id] {
+            cache[key] = legacy
+            store.setRating(legacy, for: key)
+        }
+        return key
+    }
 }
 
 extension Rating {
