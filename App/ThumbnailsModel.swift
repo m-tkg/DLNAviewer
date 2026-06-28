@@ -40,12 +40,16 @@ final class ThumbnailsModel {
         store.setTime(nil, for: k)
     }
 
-    /// タイトルベースの保存キー。旧 id キーにデータが残っていれば一度だけ移行する。
+    /// 同一性キー。旧スキーム（タイトルのみ／object id）のデータが残っていれば一度だけ移行する。
     private func key(for item: MediaItem) -> String {
         let key = item.persistentKey
-        if key != item.id, cache[key] == nil, let legacy = cache[item.id] {
-            cache[key] = legacy
-            store.setTime(legacy, for: key)
+        guard cache[key] == nil else { return key }
+        for legacy in item.legacyPersistentKeys where legacy != key {
+            if let value = cache[legacy] {
+                cache[key] = value
+                store.setTime(value, for: key)
+                break
+            }
         }
         return key
     }
