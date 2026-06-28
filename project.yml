@@ -45,6 +45,9 @@ targets:
       properties:
         CFBundleDisplayName: DLNAviewer
         LSApplicationCategoryType: public.app-category.video
+        # 輸出コンプライアンス: 独自・非標準の暗号化は使わず、OS 標準の HTTPS/TLS のみ
+        # （免除対象）。これを宣言すると TestFlight 配布ごとの質問がスキップされる。
+        ITSAppUsesNonExemptEncryption: false
         UIBackgroundModes:
           - audio
         NSLocalNetworkUsageDescription: "同一ネットワーク上の DLNA メディアサーバーを探索・接続するために使用します。"
