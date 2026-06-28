@@ -74,6 +74,20 @@ cd DLNAKit && swift test
 - CI runner は **Swift 6.2 を持つ Xcode** が必要（`DLNAKit` は `swift-tools-version: 6.2`・`.v26` 使用）。
   GitHub Actions は `setup-xcode` で `latest-stable` にピン留め。Xcode Cloud は新しめの Xcode を選ぶ。
 
+### バージョンを上げる
+
+バージョンは `project.yml` の 2 つの値で管理する（`MARKETING_VERSION` = 表示版・タグ採番用、
+`CURRENT_PROJECT_VERSION` = ビルド番号）。
+
+1. **ビルド番号を +1**: `CURRENT_PROJECT_VERSION` を上げる（新ビルド配布のたびに必須。同一だと
+   App Store Connect に弾かれる）。
+2. **表示バージョンを変える場合**は `MARKETING_VERSION` も更新（例: `1.0` → `1.0.1`）。
+3. `main` へマージすると、**macOS** は `v<MARKETING_VERSION>`（例 `v1.0.1`）で GitHub Release を
+   自動作成、**iOS** は Xcode Cloud がビルドして TestFlight へ配信。
+4. ただし `MARKETING_VERSION` を据え置くと、macOS は**既存タグと衝突してリリースをスキップ**する
+   （＝表示バージョンを上げた push のみ macOS Release が出る）。TestFlight は別管理なので
+   ビルド番号さえ上げれば配信される。
+
 ## 署名 / エンタイトルメント / アイコン（配布でハマりやすい点）
 
 - **エンタイトルメントはプラットフォーム別**（`project.yml` で `CODE_SIGN_ENTITLEMENTS[sdk=macosx*]` 出し分け）。
