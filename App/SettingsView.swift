@@ -16,6 +16,9 @@ struct SettingsView: View {
     @State private var cacheBytes: Int64 = 0
     @State private var orphanCount = 0
     @State private var confirmDeleteDownloads = false
+    #if os(macOS)
+    @State private var updater = UpdateChecker()
+    #endif
 
     private let options = [5, 10, 15, 30, 45, 60, 90, 120, 180, 300]
 
@@ -83,6 +86,10 @@ struct SettingsView: View {
                 } footer: {
                     Text("孤立データ＝記録に無いファイルや、ファイルが失われた記録。キャッシュはサムネイルや HTTP の一時データです。")
                 }
+
+                #if os(macOS)
+                updateSection
+                #endif
             }
             .navigationTitle("設定")
             #if os(iOS)
@@ -122,4 +129,38 @@ struct SettingsView: View {
         let m = seconds / 60, s = seconds % 60
         return s == 0 ? "\(m)分" : "\(m)分\(s)秒"
     }
+
+    #if os(macOS)
+    /// アップデート確認・自動更新（macOS のみ。GitHub Release から取得）。
+    @ViewBuilder
+    private var updateSection: some View {
+        Section {
+            LabeledContent("現在のバージョン", value: updater.currentVersion)
+
+            switch updater.state {
+            case .idle, .failed:
+                Button("アップデートを確認") { Task { await updater.check() } }
+            case .checking:
+                HStack { ProgressView().controlSize(.small); Text("確認中…") }
+            case .upToDate:
+                Label("最新です", systemImage: "checkmark.circle")
+                    .foregroundStyle(.green)
+                Button("再確認") { Task { await updater.check() } }
+            case .available(let release):
+                Label("新しいバージョン \(release.tagName) があります", systemImage: "arrow.down.circle")
+                Button("ダウンロードしてインストール") { Task { await updater.update(to: release) } }
+            case .downloading:
+                HStack { ProgressView().controlSize(.small); Text("ダウンロードして更新中…") }
+            }
+
+            if case .failed(let message) = updater.state {
+                Text(message).font(.caption).foregroundStyle(.red)
+            }
+        } header: {
+            Text("アップデート")
+        } footer: {
+            Text("GitHub のリリースから最新版を確認し、その場で更新します。更新後は自動で再起動します。")
+        }
+    }
+    #endif
 }
