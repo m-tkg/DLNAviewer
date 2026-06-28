@@ -4,11 +4,14 @@ import DLNAKit
 import UIKit
 #endif
 
-/// フォルダ（コンテナ）の中身を一覧表示する画面。
+/// フォルダ（コンテナ）の中身、またはダウンロード済み一覧を表示する画面。
 struct BrowseView: View {
-    let server: MediaServer
-    let objectID: String
+    /// フォルダ表示時のサーバー。ダウンロード一覧モードでは nil。
+    var server: MediaServer? = nil
+    var objectID: String = "0"
     let title: String
+    /// true ならサーバーではなくダウンロード済みのローカル一覧を表示する。
+    var downloadsMode = false
 
     @Environment(RatingsModel.self) private var ratings
     @AppStorage("browseGridMode") private var gridMode = false
@@ -55,6 +58,8 @@ struct BrowseView: View {
                     } description: {
                         Text("評価フィルタを変更してください。")
                     }
+                } else if downloadsMode {
+                    ContentUnavailableView("ダウンロードはありません", systemImage: "arrow.down.circle")
                 } else {
                     ContentUnavailableView("項目がありません", systemImage: "tray")
                 }
@@ -229,9 +234,16 @@ struct BrowseView: View {
     /// - タグ指定があればそのタグを持つ動画に絞り込み（フォルダは非表示）。
     /// - キーワードがあればその中から名前で検索。
     /// - 評価フィルタは動画に適用。
+    /// 表示元。ダウンロード一覧モードではローカルのダウンロード済みを使う（@Observable で削除も即反映）。
+    private var sourceObjects: [DIDLObject] {
+        downloadsMode
+            ? DownloadManager.shared.downloadedItems().map { DIDLObject.item($0) }
+            : objects
+    }
+
     private var displayObjects: [DIDLObject] {
         let tagFilter = Set(searchTags.map { $0.name.lowercased() })
-        return objects.filter { object in
+        return sourceObjects.filter { object in
             switch object {
             case .container(let container):
                 // タグ指定・ブックマーク絞り込み中はフォルダを出さない。
@@ -309,16 +321,18 @@ struct BrowseView: View {
         List(displayObjects) { object in
             switch object {
             case .container(let container):
-                NavigationLink(value: BrowseRoute(server: server, objectID: container.id, title: container.title)) {
-                    HStack {
-                        Label(container.title, systemImage: "folder")
-                        if isFavorite(container) {
-                            Spacer()
-                            Image(systemName: "star.fill").foregroundStyle(.yellow)
+                if let server {
+                    NavigationLink(value: BrowseRoute(server: server, objectID: container.id, title: container.title)) {
+                        HStack {
+                            Label(container.title, systemImage: "folder")
+                            if isFavorite(container) {
+                                Spacer()
+                                Image(systemName: "star.fill").foregroundStyle(.yellow)
+                            }
                         }
                     }
+                    .contextMenu { folderMenu(container) }
                 }
-                .contextMenu { folderMenu(container) }
             case .item(let item):
                 NavigationLink(value: playerRoute(for: item)) {
                     VideoRow(item: item, rating: ratings.rating(for: item), thumbSize: listThumbSize)
@@ -342,11 +356,13 @@ struct BrowseView: View {
                 ForEach(displayObjects) { object in
                     switch object {
                     case .container(let container):
-                        NavigationLink(value: BrowseRoute(server: server, objectID: container.id, title: container.title)) {
-                            folderTile(container)
+                        if let server {
+                            NavigationLink(value: BrowseRoute(server: server, objectID: container.id, title: container.title)) {
+                                folderTile(container)
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu { folderMenu(container) }
                         }
-                        .buttonStyle(.plain)
-                        .contextMenu { folderMenu(container) }
                     case .item(let item):
                         NavigationLink(value: playerRoute(for: item)) {
                             videoTile(item)
@@ -446,6 +462,7 @@ struct BrowseView: View {
 
     /// お気に入り登録済みか（`favorites.folders` を参照するので登録状態の変化で再描画される）。
     private func isFavorite(_ container: MediaContainer) -> Bool {
+        guard let server else { return false }
         let id = FavoriteFolder.makeID(serverID: server.id, objectID: container.id)
         return favorites.folders.contains { $0.id == id }
     }
@@ -453,13 +470,15 @@ struct BrowseView: View {
     /// フォルダの長押しメニュー：お気に入り登録/解除。
     @ViewBuilder
     private func folderMenu(_ container: MediaContainer) -> some View {
-        Button {
-            favorites.toggle(server: server, objectID: container.id, title: container.title)
-        } label: {
-            if isFavorite(container) {
-                Label("お気に入り解除", systemImage: "star.slash")
-            } else {
-                Label("お気に入りに追加", systemImage: "star")
+        if let server {
+            Button {
+                favorites.toggle(server: server, objectID: container.id, title: container.title)
+            } label: {
+                if isFavorite(container) {
+                    Label("お気に入り解除", systemImage: "star.slash")
+                } else {
+                    Label("お気に入りに追加", systemImage: "star")
+                }
             }
         }
     }
@@ -582,6 +601,13 @@ struct BrowseView: View {
 
     /// フォルダの中身を読み込む。`force == false` ならキャッシュを使う。
     private func load(force: Bool = false) async {
+        // ダウンロード一覧モードは取得不要（sourceObjects がローカルを直接参照）。
+        if downloadsMode {
+            isLoading = false
+            error = nil
+            return
+        }
+        guard let server else { isLoading = false; return }
         // キャッシュ利用（再読み込みでない場合）。
         if !force, let cached = BrowseCache.shared.objects(server: server, objectID: objectID) {
             objects = cached
