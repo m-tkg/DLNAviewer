@@ -244,7 +244,13 @@ struct BrowseView: View {
             switch object {
             case .container(let container):
                 NavigationLink(value: BrowseRoute(server: server, objectID: container.id, title: container.title)) {
-                    Label(container.title, systemImage: "folder")
+                    HStack {
+                        Label(container.title, systemImage: "folder")
+                        if isFavorite(container) {
+                            Spacer()
+                            Image(systemName: "star.fill").foregroundStyle(.yellow)
+                        }
+                    }
                 }
                 .contextMenu { folderMenu(container) }
             case .item(let item):
@@ -291,12 +297,20 @@ struct BrowseView: View {
 
     private func folderTile(_ container: MediaContainer) -> some View {
         VStack(spacing: 6) {
-            Image(systemName: "folder.fill")
-                .font(.system(size: 40))
-                .foregroundStyle(.tint)
-                .frame(maxWidth: .infinity)
-                .aspectRatio(16.0 / 9.0, contentMode: .fit)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: "folder.fill")
+                    .font(.system(size: 40))
+                    .foregroundStyle(.tint)
+                    .frame(maxWidth: .infinity)
+                    .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                if isFavorite(container) {
+                    Image(systemName: "star.fill")
+                        .font(.caption)
+                        .foregroundStyle(.yellow)
+                        .padding(6)
+                }
+            }
             Text(container.title)
                 .font(.caption)
                 .lineLimit(2)
@@ -355,14 +369,19 @@ struct BrowseView: View {
         }
     }
 
+    /// お気に入り登録済みか（`favorites.folders` を参照するので登録状態の変化で再描画される）。
+    private func isFavorite(_ container: MediaContainer) -> Bool {
+        let id = FavoriteFolder.makeID(serverID: server.id, objectID: container.id)
+        return favorites.folders.contains { $0.id == id }
+    }
+
     /// フォルダの長押しメニュー：お気に入り登録/解除。
     @ViewBuilder
     private func folderMenu(_ container: MediaContainer) -> some View {
-        let isFavorite = favorites.contains(serverID: server.id, objectID: container.id)
         Button {
             favorites.toggle(server: server, objectID: container.id, title: container.title)
         } label: {
-            if isFavorite {
+            if isFavorite(container) {
                 Label("お気に入り解除", systemImage: "star.slash")
             } else {
                 Label("お気に入りに追加", systemImage: "star")

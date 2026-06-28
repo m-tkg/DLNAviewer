@@ -381,6 +381,9 @@ private struct iOSPlayer: View {
                 startPoint: .top, endPoint: .bottom
             )
             .ignoresSafeArea()
+            // 背景はタップを奪わない。空き領域のシングル/ダブルタップを下層の tapLayer へ通す
+            // （コントロール表示中もダブルタップスキップ・タップで表示切替が効く）。
+            .allowsHitTesting(false)
         }
     }
 
@@ -647,6 +650,7 @@ private struct iOSPlayer: View {
     /// コントロールの下に敷くタップ層（左右2分割）。
     /// シングルタップ＝コントロール表示切替、ダブルタップ＝左=戻る/右=進む。
     /// `onTapGesture` なのでボタン（上層）の操作を妨げない。
+    /// コントロール表示中も、上層オーバーレイの背景はヒットテストを通すため空き領域で機能する。
     private var tapLayer: some View {
         HStack(spacing: 0) {
             tapZone(forward: false)
