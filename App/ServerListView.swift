@@ -5,6 +5,7 @@ import DLNAKit
 struct ServerListView: View {
     @State private var model = LibraryModel()
     @State private var ratings = RatingsModel()
+    @State private var favorites = FavoritesModel.shared
     @State private var showingAdd = false
     @State private var showingSettings = false
     @Environment(\.scenePhase) private var scenePhase
@@ -21,7 +22,8 @@ struct ServerListView: View {
         NavigationStack {
             Group {
                 if model.servers.isEmpty && model.discovered.isEmpty
-                    && DownloadManager.shared.downloadedItems().isEmpty {
+                    && DownloadManager.shared.downloadedItems().isEmpty
+                    && favorites.folders.isEmpty {
                     ContentUnavailableView {
                         Label("サーバーがありません", systemImage: "server.rack")
                     } description: {
@@ -89,6 +91,7 @@ struct ServerListView: View {
                 BookmarksModel.shared.reload()
                 ThumbnailsModel.shared.reload()
                 TagsModel.shared.reload()
+                favorites.reload()
                 model.reload()
             }
         }
@@ -108,6 +111,38 @@ struct ServerListView: View {
                 Section {
                     NavigationLink(value: TopRoute.downloads) {
                         Label("ダウンロード済み（\(downloaded.count)）", systemImage: "arrow.down.circle.fill")
+                    }
+                }
+            }
+            if !favorites.folders.isEmpty {
+                Section("お気に入り") {
+                    ForEach(favorites.folders) { folder in
+                        NavigationLink(value: BrowseRoute(server: folder.server, objectID: folder.objectID, title: folder.title)) {
+                            Label {
+                                VStack(alignment: .leading) {
+                                    Text(folder.title)
+                                    Text(folder.server.friendlyName)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            } icon: {
+                                Image(systemName: "star.fill").foregroundStyle(.yellow)
+                            }
+                        }
+                        .swipeActions {
+                            Button(role: .destructive) {
+                                favorites.remove(id: folder.id)
+                            } label: {
+                                Label("お気に入り解除", systemImage: "star.slash")
+                            }
+                        }
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                favorites.remove(id: folder.id)
+                            } label: {
+                                Label("お気に入り解除", systemImage: "star.slash")
+                            }
+                        }
                     }
                 }
             }

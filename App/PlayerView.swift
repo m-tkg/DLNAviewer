@@ -132,6 +132,7 @@ private struct iOSPlayer: View {
     // 現在シーンの解析・画像検索
     @State private var analysisImage: CapturedImage?
     @State private var shareImage: CapturedImage?
+    @State private var showingTagEditor = false
     @State private var dragStartTime: Double?
     @State private var dragUnit: Double = 60
     @State private var pendingSeekTarget: Double?
@@ -231,7 +232,7 @@ private struct iOSPlayer: View {
                     .onChange(of: geo.size.height) { _, h in viewHeight = h }
             }
         }
-        // コントロール非表示中、左右スワイプでシーク（上半分=60秒/単位・下半分=30秒/単位）。
+        // 左右スワイプでシーク（コントロール表示中も可。上半分=60秒/単位・下半分=30秒/単位）。
         .gesture(seekDrag)
         // 長押しで評価＋サムネイル設定＋シーン解析メニュー。
         .contextMenu {
@@ -243,13 +244,21 @@ private struct iOSPlayer: View {
             } label: {
                 Label("このシーンをサムネイルにする", systemImage: "photo")
             }
+            Button {
+                pausePlayback()
+                showingTagEditor = true
+            } label: {
+                Label("タグを編集…", systemImage: "tag")
+            }
             Divider()
             Button {
+                pausePlayback()
                 Task { if let image = await captureFrame() { analysisImage = CapturedImage(image: image) } }
             } label: {
                 Label("このシーンを調べる", systemImage: "sparkles")
             }
             Button {
+                pausePlayback()
                 Task { if let image = await captureFrame() { shareImage = CapturedImage(image: image) } }
             } label: {
                 Label("このシーンを画像検索…", systemImage: "magnifyingglass")
@@ -257,6 +266,9 @@ private struct iOSPlayer: View {
         }
         .sheet(item: $analysisImage) { captured in
             SceneAnalysisView(image: captured.image)
+        }
+        .sheet(isPresented: $showingTagEditor) {
+            TagEditorView(item: item)
         }
         .sheet(item: $shareImage) { captured in
             ShareSheet(items: [captured.image])
@@ -374,6 +386,9 @@ private struct iOSPlayer: View {
                 startPoint: .top, endPoint: .bottom
             )
             .ignoresSafeArea()
+            // 背景はタップを奪わない。空き領域のシングル/ダブルタップを下層の tapLayer へ通す
+            // （コントロール表示中もダブルタップスキップ・タップで表示切替が効く）。
+            .allowsHitTesting(false)
         }
     }
 
@@ -553,6 +568,14 @@ private struct iOSPlayer: View {
         }
     }
 
+    /// 再生中なら一時停止する（シート/解析を開く前に呼ぶ）。
+    private func pausePlayback() {
+        guard player.timeControlStatus != .paused else { return }
+        player.pause()
+        isPlaying = false
+        hideTask?.cancel()
+    }
+
     private func seek(to seconds: Double) {
         player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600),
                     toleranceBefore: .zero, toleranceAfter: .zero)
@@ -578,15 +601,14 @@ private struct iOSPlayer: View {
     }
 
     /// プレイヤー上のドラッグ。
-    /// - 横方向（コントロール非表示時）: シーク。上半分=60秒・下半分=30秒を単位に移動。
+    /// - 横方向: シーク。上半分=60秒・下半分=30秒を単位に移動（コントロール表示中も可）。
     /// - 縦方向: 回転。縦状態で上スワイプ→横、横状態で下スワイプ→縦（YouTube ライク）。
     private var seekDrag: some Gesture {
         DragGesture(minimumDistance: 20, coordinateSpace: .local)
             .onChanged { value in
                 guard hasSource, duration > 0 else { return }
-                // 横方向が主のドラッグだけシークプレビューを出す（コントロール非表示時のみ）。
-                guard !controlsVisible,
-                      abs(value.translation.width) > abs(value.translation.height) else { return }
+                // 横方向が主のドラッグだけシークプレビューを出す（コントロール表示中も可）。
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
                 if dragStartTime == nil {
                     dragStartTime = currentTime
                     dragUnit = Double(value.startLocation.y < viewHeight / 2 ? seekUnitTop : seekUnitBottom)
@@ -607,9 +629,10 @@ private struct iOSPlayer: View {
                 endScrub()   // 元の再生/停止状態へ戻す
 
                 if isHorizontal {
-                    guard !controlsVisible, let target else { return }
+                    guard let target else { return }
                     seeker.seek(toSeconds: target, tolerance: 0)   // 最終位置へ正確にシーク
                     currentTime = target
+                    if controlsVisible { scheduleAutoHide() }      // 操作中は自動非表示を延長
                 } else {
                     // 縦スワイプ
                     guard abs(value.translation.height) > rotateThreshold else { return }
@@ -640,6 +663,7 @@ private struct iOSPlayer: View {
     /// コントロールの下に敷くタップ層（左右2分割）。
     /// シングルタップ＝コントロール表示切替、ダブルタップ＝左=戻る/右=進む。
     /// `onTapGesture` なのでボタン（上層）の操作を妨げない。
+    /// コントロール表示中も、上層オーバーレイの背景はヒットテストを通すため空き領域で機能する。
     private var tapLayer: some View {
         HStack(spacing: 0) {
             tapZone(forward: false)
