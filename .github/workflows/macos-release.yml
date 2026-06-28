@@ -18,10 +18,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # 既定の Xcode に macOS 26 SDK が無い場合は以下を有効化してピン留めする。
-      # - uses: maxim-lobanov/setup-xcode@v1
-      #   with:
-      #     xcode-version: latest
+      # runner の既定 Xcode は実行ごとにブレ（Swift 6.1 が選ばれると DLNAKit の
+      # swift-tools-version: 6.2 を解決できない）。Swift 6.2 / macOS 26 SDK を持つ
+      # 最新安定版 Xcode を明示選択して固定する。
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
 
       # project.yml の MARKETING_VERSION から vX.Y タグを決める。
       - name: Resolve version
