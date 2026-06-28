@@ -151,8 +151,14 @@ struct BrowseView: View {
                     Label(gridMode ? "リスト表示" : "アイコン表示",
                           systemImage: gridMode ? "list.bullet" : "square.grid.2x2")
                 }
-                // 長押しで、今表示している一覧をクリップボードにコピー。
-                .onLongPressGesture(minimumDuration: 0.4) { copyDisplayedList() }
+                // 長押し(iOS)/右クリック(macOS)で、今表示している一覧をクリップボードにコピー。
+                .contextMenu {
+                    Button {
+                        copyDisplayedList()
+                    } label: {
+                        Label("一覧をコピー", systemImage: "doc.on.doc")
+                    }
+                }
             }
             ToolbarItem(placement: .primaryAction) {
                 Button {
