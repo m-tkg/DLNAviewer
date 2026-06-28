@@ -103,7 +103,7 @@ struct ThumbnailView: View {
     private func loadGenerated(at seconds: Double) async {
         // ダウンロード済みならローカルファイルから生成（オフラインでも可）。
         guard let url = DownloadManager.shared.preferredURL(for: item) else { return }
-        let cacheKey = "\(item.id)#\(Int(seconds))"
+        let cacheKey = "\(item.persistentKey)#\(Int(seconds))"
         if let cached = ThumbnailCache.shared.image(for: cacheKey) {
             generated = cached
             return

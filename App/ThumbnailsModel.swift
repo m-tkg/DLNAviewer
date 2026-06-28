@@ -23,18 +23,30 @@ final class ThumbnailsModel {
 
     /// サムネイルに使う時刻（未設定なら nil）。
     func time(for item: MediaItem) -> Double? {
-        cache[item.id]
+        cache[key(for: item)]
     }
 
     /// このシーンの時刻をサムネイルに設定する。
     func set(_ time: Double, for item: MediaItem) {
         guard time.isFinite, time >= 0 else { return }
-        cache[item.id] = time
-        store.setTime(time, for: item.id)
+        let k = key(for: item)
+        cache[k] = time
+        store.setTime(time, for: k)
     }
 
     func clear(for item: MediaItem) {
-        cache[item.id] = nil
-        store.setTime(nil, for: item.id)
+        let k = key(for: item)
+        cache[k] = nil
+        store.setTime(nil, for: k)
+    }
+
+    /// タイトルベースの保存キー。旧 id キーにデータが残っていれば一度だけ移行する。
+    private func key(for item: MediaItem) -> String {
+        let key = item.persistentKey
+        if key != item.id, cache[key] == nil, let legacy = cache[item.id] {
+            cache[key] = legacy
+            store.setTime(legacy, for: key)
+        }
+        return key
     }
 }

@@ -108,6 +108,15 @@ public struct MediaItem: Identifiable, Hashable, Sendable, Codable {
 
     /// upnp:class が動画かどうか。
     public var isVideo: Bool { upnpClass.contains("videoItem") }
+
+    /// 評価・ブックマーク・タグ・サムネ上書きなど、**永続データの同一性キー**。
+    /// サーバーの object id が変わってもタイトルが同じなら同一動画として扱うため、
+    /// タイトル（前後空白を除去）を使う。空タイトルのときだけ id にフォールバックする。
+    /// 注意: 別フォルダの同名動画は同一として扱われる。
+    public var persistentKey: String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? id : trimmed
+    }
 }
 
 /// `<res>` 要素 = 再生可能なリソース 1 本。
