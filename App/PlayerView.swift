@@ -194,8 +194,13 @@ private struct iOSPlayer: View {
             Color.black.ignoresSafeArea()
             if hasSource {
                 PlayerLayerView().ignoresSafeArea()
-                // コントロールの下にタップ層（シングル=表示切替・ダブル=左右スキップ）。
-                tapLayer.ignoresSafeArea()
+                // タップ/スワイプ/長押しはこの層が一手に引き受ける（コントロールの下に常設）。
+                tapLayer
+                    .ignoresSafeArea()
+                    .gesture(seekDrag)
+                    .contextMenu { playerMenu }
+                // コントロール表示中はこの上にバーを重ねる。バー領域はタップを吸収し、
+                // 中央の空き領域だけ下の tapLayer に通す。
                 if controlsVisible {
                     controlsOverlay.transition(.opacity)
                 }
@@ -230,38 +235,6 @@ private struct iOSPlayer: View {
                 Color.clear
                     .onAppear { viewHeight = geo.size.height }
                     .onChange(of: geo.size.height) { _, h in viewHeight = h }
-            }
-        }
-        // 左右スワイプでシーク（コントロール表示中も可。上半分=60秒/単位・下半分=30秒/単位）。
-        .gesture(seekDrag)
-        // 長押しで評価＋サムネイル設定＋シーン解析メニュー。
-        .contextMenu {
-            RatingMenu(item: item, ratings: ratings)
-            Divider()
-            Button {
-                let time = player.currentTime().seconds
-                if time.isFinite { ThumbnailsModel.shared.set(time, for: item) }
-            } label: {
-                Label("このシーンをサムネイルにする", systemImage: "photo")
-            }
-            Button {
-                pausePlayback()
-                showingTagEditor = true
-            } label: {
-                Label("タグを編集…", systemImage: "tag")
-            }
-            Divider()
-            Button {
-                pausePlayback()
-                Task { if let image = await captureFrame() { analysisImage = CapturedImage(image: image) } }
-            } label: {
-                Label("このシーンを調べる", systemImage: "sparkles")
-            }
-            Button {
-                pausePlayback()
-                Task { if let image = await captureFrame() { shareImage = CapturedImage(image: image) } }
-            } label: {
-                Label("このシーンを画像検索…", systemImage: "magnifyingglass")
             }
         }
         .sheet(item: $analysisImage) { captured in
@@ -370,26 +343,66 @@ private struct iOSPlayer: View {
 
     // MARK: コントロールオーバーレイ
 
+    /// 長押しメニュー（評価・サムネ設定・シーン解析）。tapLayer に付与。
+    @ViewBuilder
+    private var playerMenu: some View {
+        RatingMenu(item: item, ratings: ratings)
+        Divider()
+        Button {
+            let time = player.currentTime().seconds
+            if time.isFinite { ThumbnailsModel.shared.set(time, for: item) }
+        } label: {
+            Label("このシーンをサムネイルにする", systemImage: "photo")
+        }
+        Button {
+            pausePlayback()
+            showingTagEditor = true
+        } label: {
+            Label("タグを編集…", systemImage: "tag")
+        }
+        Divider()
+        Button {
+            pausePlayback()
+            Task { if let image = await captureFrame() { analysisImage = CapturedImage(image: image) } }
+        } label: {
+            Label("このシーンを調べる", systemImage: "sparkles")
+        }
+        Button {
+            pausePlayback()
+            Task { if let image = await captureFrame() { shareImage = CapturedImage(image: image) } }
+        } label: {
+            Label("このシーンを画像検索…", systemImage: "magnifyingglass")
+        }
+    }
+
     private var controlsOverlay: some View {
+        // バー領域（上下）はタップを吸収してコントロールを維持。中央の空き領域だけ
+        // 下の tapLayer に通し、ダブルタップスキップ／シングルタップで非表示を効かせる。
         VStack(spacing: 0) {
-            topBar
-            tagBar
-            Spacer()
+            VStack(spacing: 0) {
+                topBar
+                tagBar
+            }
+            .background {
+                LinearGradient(colors: [.black.opacity(0.6), .clear],
+                               startPoint: .top, endPoint: .bottom)
+                    .ignoresSafeArea(edges: .top)
+            }
+            .contentShape(Rectangle())
+
+            Spacer(minLength: 0)
             centerControls
-            Spacer()
+            Spacer(minLength: 0)
+
             bottomBar
+                .background {
+                    LinearGradient(colors: [.clear, .black.opacity(0.6)],
+                                   startPoint: .top, endPoint: .bottom)
+                        .ignoresSafeArea(edges: .bottom)
+                }
+                .contentShape(Rectangle())
         }
         .foregroundStyle(.white)
-        .background {
-            LinearGradient(
-                colors: [.black.opacity(0.55), .clear, .clear, .black.opacity(0.55)],
-                startPoint: .top, endPoint: .bottom
-            )
-            .ignoresSafeArea()
-            // 背景はタップを奪わない。空き領域のシングル/ダブルタップを下層の tapLayer へ通す
-            // （コントロール表示中もダブルタップスキップ・タップで表示切替が効く）。
-            .allowsHitTesting(false)
-        }
     }
 
     /// この動画に設定されたタグをすべて表示。
