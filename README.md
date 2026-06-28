@@ -119,7 +119,7 @@ cd DLNAKit && swift test
 
 - **iOS / iPadOS**: Xcode Cloud でビルドし **TestFlight** へ配信（ワークフローの scheme は `DLNAviewer`）。
 - **macOS**: GitHub Actions（`.github/workflows/macos-release.yml`）で `main` への push 時にビルドし、
-  `MARKETING_VERSION` のタグで **GitHub Release** を作成（バージョンを上げた時のみ）。
+  `MARKETING_VERSION` から `v<MARKETING_VERSION>` タグ（例 `1.0.1` → `v1.0.1`）で **GitHub Release** を作成（バージョンを上げた時のみ）。
 - どちらも**ドキュメント（`*.md` 等）だけの変更ではビルドしない**。
 - 開発・CI・署名まわりの詳細な注意点は `CLAUDE.md` を参照。
 

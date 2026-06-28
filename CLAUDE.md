@@ -64,8 +64,8 @@ cd DLNAKit && swift test
   - `.xcodeproj` は未コミットなので、`ci_scripts/ci_post_clone.sh` がクローン後に `xcodegen generate`
     する（これが無いと Xcode Cloud がプロジェクトを見つけられない）。
 - **macOS — GitHub Actions（`.github/workflows/macos-release.yml`）→ GitHub Release**。
-  - `project.yml` の `MARKETING_VERSION` から `vX.Y` タグを採番。既存リリースがあればスキップ
-    （＝バージョンを上げた push のみリリース）。
+  - `project.yml` の `MARKETING_VERSION` をそのままタグ化する（`v<MARKETING_VERSION>`。
+    例: `1.0.1` → `v1.0.1`）。既存リリースがあればスキップ（＝バージョンを上げた push のみリリース）。
   - 未署名ビルド後に自前 `codesign`。署名/公証シークレット未設定なら ad-hoc にフォールバック。
 - 両 CI とも **ドキュメントのみ（`*.md` 等）の変更ではビルドしない**（GitHub Actions は `paths-ignore`、
   Xcode Cloud は Start Condition の Files and Folders で `App` / `DLNAKit` / `project.yml` / `ci_scripts` を指定）。
@@ -73,6 +73,20 @@ cd DLNAKit && swift test
   ビルド番号は App Store Connect に弾かれる。
 - CI runner は **Swift 6.2 を持つ Xcode** が必要（`DLNAKit` は `swift-tools-version: 6.2`・`.v26` 使用）。
   GitHub Actions は `setup-xcode` で `latest-stable` にピン留め。Xcode Cloud は新しめの Xcode を選ぶ。
+
+### バージョンを上げる
+
+バージョンは `project.yml` の 2 つの値で管理する（`MARKETING_VERSION` = 表示版・タグ採番用、
+`CURRENT_PROJECT_VERSION` = ビルド番号）。
+
+1. **ビルド番号を +1**: `CURRENT_PROJECT_VERSION` を上げる（新ビルド配布のたびに必須。同一だと
+   App Store Connect に弾かれる）。
+2. **表示バージョンを変える場合**は `MARKETING_VERSION` も更新（例: `1.0` → `1.0.1`）。
+3. `main` へマージすると、**macOS** は `v<MARKETING_VERSION>`（例 `v1.0.1`）で GitHub Release を
+   自動作成、**iOS** は Xcode Cloud がビルドして TestFlight へ配信。
+4. ただし `MARKETING_VERSION` を据え置くと、macOS は**既存タグと衝突してリリースをスキップ**する
+   （＝表示バージョンを上げた push のみ macOS Release が出る）。TestFlight は別管理なので
+   ビルド番号さえ上げれば配信される。
 
 ## 署名 / エンタイトルメント / アイコン（配布でハマりやすい点）
 
@@ -121,9 +135,8 @@ cd DLNAKit && swift test
 ## Git / PR
 
 - `gh` を使う。`main` へ直接コミットせず作業ブランチを切る。
-- エンタイトルメントは **プラットフォーム別**（`App/DLNAviewer-iOS.entitlements` /
-  `App/DLNAviewer-macOS.entitlements`）。macOS は個人利用前提で **App Sandbox 無効**（SSDP マルチキャスト用）。
-  詳細は「署名 / エンタイトルメント / アイコン」を参照。
+- エンタイトルメント（プラットフォーム別・macOS は App Sandbox 無効）と署名まわりは
+  「署名 / エンタイトルメント / アイコン」を参照。
 
 ## 既知の制約
 
