@@ -726,11 +726,11 @@ private struct iOSPlayer: View {
             }
     }
 
-    /// ブックマーク一覧の小窓用。左右タップで指定秒数だけ移動する（コントロール切替はしない）。
+    /// ブックマーク一覧の小窓用。左右ダブルタップで指定秒数だけ移動する（メインと同じ操作）。
     private func miniTapZone(forward: Bool) -> some View {
         Color.clear
             .contentShape(Rectangle())
-            .onTapGesture {
+            .onTapGesture(count: 2) {
                 skip(forward ? Double(doubleTapSeconds) : -Double(doubleTapSeconds))
             }
     }

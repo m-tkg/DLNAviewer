@@ -112,9 +112,15 @@ struct BrowseView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
-                    Toggle(isOn: $filterLike) { Label("Like", systemImage: "hand.thumbsup") }
-                    Toggle(isOn: $filterDislike) { Label("Dislike", systemImage: "hand.thumbsdown") }
-                    Toggle(isOn: $filterNone) { Label("評価なし", systemImage: "minus") }
+                    Picker("評価フィルタ", selection: Binding(
+                        get: { ratingFilter }, set: { setRatingFilter($0) }
+                    )) {
+                        Label("すべて", systemImage: "circle.dashed").tag(RatingFilter.all)
+                        Label("Like", systemImage: "hand.thumbsup").tag(RatingFilter.like)
+                        Label("Dislike", systemImage: "hand.thumbsdown").tag(RatingFilter.dislike)
+                        Label("評価なし", systemImage: "minus").tag(RatingFilter.none)
+                    }
+                    .pickerStyle(.inline)
                 } label: {
                     Label("フィルタ",
                           systemImage: isFiltering
@@ -270,6 +276,27 @@ struct BrowseView: View {
         case .like: return filterLike
         case .dislike: return filterDislike
         case .none: return filterNone
+        }
+    }
+
+    /// 評価フィルタの単一選択。内部の 3 フラグ（filterLike/Dislike/None）へ写像する。
+    private enum RatingFilter: Hashable { case all, like, dislike, none }
+
+    private var ratingFilter: RatingFilter {
+        switch (filterLike, filterDislike, filterNone) {
+        case (true, false, false): return .like
+        case (false, true, false): return .dislike
+        case (false, false, true): return .none
+        default: return .all
+        }
+    }
+
+    private func setRatingFilter(_ filter: RatingFilter) {
+        switch filter {
+        case .all:     (filterLike, filterDislike, filterNone) = (true, true, true)
+        case .like:    (filterLike, filterDislike, filterNone) = (true, false, false)
+        case .dislike: (filterLike, filterDislike, filterNone) = (false, true, false)
+        case .none:    (filterLike, filterDislike, filterNone) = (false, false, true)
         }
     }
 
