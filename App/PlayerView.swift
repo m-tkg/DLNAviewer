@@ -221,9 +221,19 @@ private struct iOSPlayer: View {
                 .foregroundStyle(.white)
             }
 
-            // スワイプシーク中はシークバーを表示
-            if let target = pendingSeekTarget {
-                SeekBarOverlay(current: target, duration: duration)
+            // スワイプシーク中、コントロール非表示なら本来のシークバー（bottomBar）を同じ位置に表示。
+            // コントロール表示中は既存の bottomBar が currentTime に追従するため不要。
+            if pendingSeekTarget != nil && !controlsVisible {
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    bottomBar
+                        .background {
+                            LinearGradient(colors: [.clear, .black.opacity(0.6)],
+                                           startPoint: .top, endPoint: .bottom)
+                                .ignoresSafeArea(edges: .bottom)
+                        }
+                }
+                .allowsHitTesting(false)
             }
 
             // ダブルタップスキップのヒント
@@ -734,12 +744,14 @@ private struct iOSPlayer: View {
                 if dragStartTime == nil {
                     dragStartTime = currentTime
                     dragUnit = Double(value.startLocation.y < viewHeight / 2 ? seekUnitTop : seekUnitBottom)
+                    isScrubbing = true   // tick による currentTime 上書きを止める
                     beginScrub()   // シーク中も音を出す
                 }
                 let start = dragStartTime ?? currentTime
                 let units = (value.translation.width / pointsPerUnit).rounded(.towardZero)
                 let target = min(max(0, start + units * dragUnit), duration)
                 pendingSeekTarget = target
+                currentTime = target   // コントローラのシークバーを目標位置へ追従
                 // 指を離す前から動画を追従させる（どのシーンか分かるように）。
                 seeker.seek(toSeconds: target, tolerance: 0.5)
             }
@@ -749,6 +761,7 @@ private struct iOSPlayer: View {
                 dragStartTime = nil
                 pendingSeekTarget = nil
                 endScrub()   // 元の再生/停止状態へ戻す
+                isScrubbing = false
 
                 if isHorizontal {
                     guard let target else { return }
@@ -909,43 +922,6 @@ private struct CircularSeekBar: View {
 }
 
 /// 横スワイプシーク中に表示するシークバー（読み取り専用）。
-private struct SeekBarOverlay: View {
-    let current: Double
-    let duration: Double
-
-    var body: some View {
-        VStack {
-            Spacer()
-            VStack(spacing: 8) {
-                GeometryReader { geo in
-                    let frac = CGFloat(duration > 0 ? min(max(current / duration, 0), 1) : 0)
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(.white.opacity(0.3)).frame(height: 4)
-                        Capsule().fill(.white).frame(width: geo.size.width * frac, height: 4)
-                        Circle().fill(.white)
-                            .frame(width: 14, height: 14)
-                            .offset(x: geo.size.width * frac - 7)
-                    }
-                    .frame(maxHeight: .infinity, alignment: .center)
-                }
-                .frame(height: 16)
-                HStack {
-                    Text(iOSPlayer.timeString(current))
-                    Spacer()
-                    Text(iOSPlayer.timeString(duration))
-                }
-                .font(.caption.monospacedDigit())
-            }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 24)
-            .padding(.bottom, 48)
-        }
-        .background {
-            LinearGradient(colors: [.clear, .black.opacity(0.5)], startPoint: .center, endPoint: .bottom)
-                .ignoresSafeArea()
-        }
-    }
-}
 
 /// AVPlayer を `AVPlayerLayer` で描画するビュー（コントロールは持たない）。
 /// 画面遷移をまたいで PiP を継続させるため、永続的な `PlaybackModel` のレイヤービューを使う。
