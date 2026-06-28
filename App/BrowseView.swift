@@ -22,6 +22,7 @@ struct BrowseView: View {
     @State private var error: String?
     @State private var searchText = ""
     @State private var searchTags: [TagToken] = []
+    @State private var bookmarkedOnly = false
     @State private var showingSettings = false
     @State private var showingTagFilter = false
     @State private var tagEditItem: MediaItem?
@@ -171,6 +172,16 @@ struct BrowseView: View {
                 .padding(8)
                 .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
 
+                // ブックマークがある動画だけに絞り込むトグル。
+                Button {
+                    bookmarkedOnly.toggle()
+                } label: {
+                    Image(systemName: bookmarkedOnly ? "bookmark.fill" : "bookmark")
+                        .font(.title3)
+                        .foregroundStyle(bookmarkedOnly ? .yellow : .secondary)
+                }
+                .buttonStyle(.plain)
+
                 // 検索フォームの右隣: タグ指定ボタン（検索・リネーム・削除つき）。
                 Button {
                     showingTagFilter = true
@@ -180,10 +191,21 @@ struct BrowseView: View {
                 .buttonStyle(.plain)
             }
 
-            // 選択中タグのチップ（タップで解除）。
-            if !searchTags.isEmpty {
+            // 選択中の絞り込み条件のチップ（タップで解除）。
+            if !searchTags.isEmpty || bookmarkedOnly {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
+                        if bookmarkedOnly {
+                            HStack(spacing: 4) {
+                                Image(systemName: "bookmark.fill").font(.caption2)
+                                Text("ブックマークあり").font(.caption)
+                                Image(systemName: "xmark.circle.fill").font(.caption2)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(.yellow.opacity(0.25), in: Capsule())
+                            .onTapGesture { bookmarkedOnly = false }
+                        }
                         ForEach(searchTags) { token in
                             HStack(spacing: 4) {
                                 Text("#\(token.name)").font(.caption)
@@ -212,10 +234,11 @@ struct BrowseView: View {
         return objects.filter { object in
             switch object {
             case .container(let container):
-                // タグ指定中はフォルダ（タグを持たない）を出さない。
-                return tagFilter.isEmpty && matchesSearch(container.title)
+                // タグ指定・ブックマーク絞り込み中はフォルダを出さない。
+                return tagFilter.isEmpty && !bookmarkedOnly && matchesSearch(container.title)
             case .item(let item):
                 guard item.isVideo, ratingAllowed(ratings.rating(for: item)) else { return false }
+                if bookmarkedOnly, BookmarksModel.shared.bookmarks(for: item).isEmpty { return false }
                 let itemTags = Set(TagsModel.shared.tags(for: item).map { $0.lowercased() })
                 return tagFilter.isSubset(of: itemTags) && matchesSearch(item.title)
             }
@@ -253,7 +276,8 @@ struct BrowseView: View {
     }
 
     private var isSearching: Bool {
-        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !searchTags.isEmpty
+        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !searchTags.isEmpty || bookmarkedOnly
     }
 
     /// いずれかのフィルタが無効ならフィルタ中とみなす。
