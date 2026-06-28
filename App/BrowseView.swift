@@ -257,16 +257,12 @@ struct BrowseView: View {
         }
     }
 
-    /// 表示中の動画アイテム（前/次移動のプレイリスト）。
-    private var videoItems: [MediaItem] {
-        displayObjects.compactMap { object in
+    /// 与えられた表示オブジェクト列から動画アイテムだけを抜き出す（前/次移動のプレイリスト用）。
+    private func videoItems(from objects: [DIDLObject]) -> [MediaItem] {
+        objects.compactMap { object in
             if case .item(let item) = object { return item }
             return nil
         }
-    }
-
-    private func playerRoute(for item: MediaItem) -> PlayerRoute {
-        PlayerRoute(items: videoItems, index: videoItems.firstIndex(of: item) ?? 0)
     }
 
     private func ratingAllowed(_ rating: Rating) -> Bool {
@@ -318,7 +314,11 @@ struct BrowseView: View {
     }
 
     private var list: some View {
-        List(displayObjects) { object in
+        // displayObjects は重い計算なので 1 回だけ評価し、プレイリストと添字も使い回す。
+        let objects = displayObjects
+        let videos = videoItems(from: objects)
+        let indexByID = videoIndexMap(videos)
+        return List(objects) { object in
             switch object {
             case .container(let container):
                 if let server {
@@ -334,7 +334,7 @@ struct BrowseView: View {
                     .contextMenu { folderMenu(container) }
                 }
             case .item(let item):
-                NavigationLink(value: playerRoute(for: item)) {
+                NavigationLink(value: PlayerRoute(items: videos, index: indexByID[item.id] ?? 0)) {
                     VideoRow(item: item, rating: ratings.rating(for: item), thumbSize: listThumbSize)
                 }
                 // 左スワイプ（trailing）で評価を選択。
@@ -350,10 +350,18 @@ struct BrowseView: View {
         .refreshable { await load(force: true) }
     }
 
+    /// 動画アイテム配列を id→添字の辞書にする（前/次移動の開始位置を O(1) で引くため）。
+    private func videoIndexMap(_ videos: [MediaItem]) -> [String: Int] {
+        Dictionary(videos.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
     private var grid: some View {
-        ScrollView {
+        let objects = displayObjects
+        let videos = videoItems(from: objects)
+        let indexByID = videoIndexMap(videos)
+        return ScrollView {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: gridMinWidth), spacing: 16)], spacing: 16) {
-                ForEach(displayObjects) { object in
+                ForEach(objects) { object in
                     switch object {
                     case .container(let container):
                         if let server {
@@ -364,7 +372,7 @@ struct BrowseView: View {
                             .contextMenu { folderMenu(container) }
                         }
                     case .item(let item):
-                        NavigationLink(value: playerRoute(for: item)) {
+                        NavigationLink(value: PlayerRoute(items: videos, index: indexByID[item.id] ?? 0)) {
                             videoTile(item)
                         }
                         .buttonStyle(.plain)

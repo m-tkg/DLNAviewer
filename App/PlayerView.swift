@@ -133,6 +133,7 @@ private struct iOSPlayer: View {
     @State private var analysisImage: CapturedImage?
     @State private var shareImage: CapturedImage?
     @State private var showingTagEditor = false
+    @State private var showingFullTitle = false
     @State private var dragStartTime: Double?
     @State private var dragUnit: Double = 60
     @State private var pendingSeekTarget: Double?
@@ -280,6 +281,11 @@ private struct iOSPlayer: View {
                 ZStack {
                     Color.black
                     if hasSource { PlayerLayerView() }
+                    // 左右タップで指定秒数（ダブルタップ秒数）だけ移動。
+                    HStack(spacing: 0) {
+                        miniTapZone(forward: false)
+                        miniTapZone(forward: true)
+                    }
                 }
                 .aspectRatio(16.0 / 9.0, contentMode: .fit)
                 miniSeekBar
@@ -438,6 +444,12 @@ private struct iOSPlayer: View {
             Text(item.title)
                 .font(.headline)
                 .lineLimit(1)
+                // 長押しでタイトル全文を下に表示（離すと消える）。
+                .onLongPressGesture(minimumDuration: 0.3) {
+                    showingFullTitle = true
+                } onPressingChanged: { pressing in
+                    if !pressing { showingFullTitle = false }
+                }
             Spacer()
             // 現在位置をブックマーク追加（ライブのプレイヤー位置を使う）。
             Button {
@@ -461,6 +473,18 @@ private struct iOSPlayer: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 12)
+        // タイトル長押し中は全文を下に浮かせて表示（レイアウトは下げない）。
+        .overlay(alignment: .bottomLeading) {
+            if showingFullTitle {
+                Text(item.title)
+                    .font(.subheadline)
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.black.opacity(0.7))
+                    .alignmentGuide(.bottom) { d in d[.top] }
+            }
+        }
     }
 
     private var centerControls: some View {
@@ -699,6 +723,15 @@ private struct iOSPlayer: View {
             .onTapGesture {
                 withAnimation(.easeInOut(duration: 0.2)) { controlsVisible.toggle() }
                 if controlsVisible { scheduleAutoHide() }
+            }
+    }
+
+    /// ブックマーク一覧の小窓用。左右タップで指定秒数だけ移動する（コントロール切替はしない）。
+    private func miniTapZone(forward: Bool) -> some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .onTapGesture {
+                skip(forward ? Double(doubleTapSeconds) : -Double(doubleTapSeconds))
             }
     }
 
