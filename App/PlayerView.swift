@@ -477,11 +477,15 @@ private struct iOSPlayer: View {
             Text(item.title)
                 .font(.headline)
                 .lineLimit(1)
-                // 長押しでタイトル全文を下に表示（離すと消える）。
+                // 長押しでタイトル全文を下に表示（離すと消える）。表示中はコントロールを消さない。
                 .onLongPressGesture(minimumDuration: 0.3) {
                     showingFullTitle = true
+                    hideTask?.cancel()   // 表示中は自動非表示を止める
                 } onPressingChanged: { pressing in
-                    if !pressing { showingFullTitle = false }
+                    if !pressing {
+                        showingFullTitle = false
+                        scheduleAutoHide()   // 離したら自動非表示を再開
+                    }
                 }
             Spacer()
             // 現在位置をブックマーク追加（ライブのプレイヤー位置を使う）。
@@ -833,7 +837,8 @@ private struct iOSPlayer: View {
         guard controlsVisible else { return }
         hideTask = Task {
             try? await Task.sleep(for: .seconds(3.5))
-            if !Task.isCancelled, isPlaying, !isScrubbing {
+            // タイトル長押しで全文表示中は隠さない。
+            if !Task.isCancelled, isPlaying, !isScrubbing, !showingFullTitle {
                 withAnimation(.easeInOut(duration: 0.2)) { controlsVisible = false }
             }
         }
