@@ -64,8 +64,8 @@ cd DLNAKit && swift test
   - `.xcodeproj` は未コミットなので、`ci_scripts/ci_post_clone.sh` がクローン後に `xcodegen generate`
     する（これが無いと Xcode Cloud がプロジェクトを見つけられない）。
 - **macOS — GitHub Actions（`.github/workflows/macos-release.yml`）→ GitHub Release**。
-  - `project.yml` の `MARKETING_VERSION` から `vX.Y` タグを採番。既存リリースがあればスキップ
-    （＝バージョンを上げた push のみリリース）。
+  - `project.yml` の `MARKETING_VERSION` をそのままタグ化する（`v<MARKETING_VERSION>`。
+    例: `1.0.1` → `v1.0.1`）。既存リリースがあればスキップ（＝バージョンを上げた push のみリリース）。
   - 未署名ビルド後に自前 `codesign`。署名/公証シークレット未設定なら ad-hoc にフォールバック。
 - 両 CI とも **ドキュメントのみ（`*.md` 等）の変更ではビルドしない**（GitHub Actions は `paths-ignore`、
   Xcode Cloud は Start Condition の Files and Folders で `App` / `DLNAKit` / `project.yml` / `ci_scripts` を指定）。
@@ -121,9 +121,8 @@ cd DLNAKit && swift test
 ## Git / PR
 
 - `gh` を使う。`main` へ直接コミットせず作業ブランチを切る。
-- エンタイトルメントは **プラットフォーム別**（`App/DLNAviewer-iOS.entitlements` /
-  `App/DLNAviewer-macOS.entitlements`）。macOS は個人利用前提で **App Sandbox 無効**（SSDP マルチキャスト用）。
-  詳細は「署名 / エンタイトルメント / アイコン」を参照。
+- エンタイトルメント（プラットフォーム別・macOS は App Sandbox 無効）と署名まわりは
+  「署名 / エンタイトルメント / アイコン」を参照。
 
 ## 既知の制約
 
