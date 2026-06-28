@@ -3,6 +3,9 @@ import DLNAKit
 #if canImport(UIKit)
 import UIKit
 #endif
+#if canImport(AppKit)
+import AppKit
+#endif
 
 /// フォルダ（コンテナ）の中身、またはダウンロード済み一覧を表示する画面。
 struct BrowseView: View {
@@ -34,6 +37,7 @@ struct BrowseView: View {
     @State private var chapterRun: ChapterRun?
     @State private var chapterTask: Task<Void, Never>?
     @State private var chapterResult: String?
+    @State private var showCopiedToast = false
 
     private let client = ContentDirectoryClient()
 
@@ -98,6 +102,18 @@ struct BrowseView: View {
                 }
             }
         }
+        .overlay(alignment: .bottom) {
+            if showCopiedToast {
+                Text("一覧をコピーしました")
+                    .font(.callout)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .padding(.bottom, 24)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .allowsHitTesting(false)
+            }
+        }
         .alert("自動チャプター", isPresented: Binding(
             get: { chapterResult != nil }, set: { if !$0 { chapterResult = nil } }
         )) {
@@ -135,6 +151,8 @@ struct BrowseView: View {
                     Label(gridMode ? "リスト表示" : "アイコン表示",
                           systemImage: gridMode ? "list.bullet" : "square.grid.2x2")
                 }
+                // 長押しで、今表示している一覧をクリップボードにコピー。
+                .onLongPressGesture(minimumDuration: 0.4) { copyDisplayedList() }
             }
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -245,6 +263,24 @@ struct BrowseView: View {
         downloadsMode
             ? DownloadManager.shared.downloadedItems().map { DIDLObject.item($0) }
             : objects
+    }
+
+    /// いま表示している一覧（検索・フィルタ反映済み）のタイトルをクリップボードへコピーする。
+    private func copyDisplayedList() {
+        let text = displayObjects.map(\.title).joined(separator: "\n")
+        guard !text.isEmpty else { return }
+        #if canImport(UIKit)
+        UIPasteboard.general.string = text
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        #elseif canImport(AppKit)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        #endif
+        withAnimation { showCopiedToast = true }
+        Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            withAnimation { showCopiedToast = false }
+        }
     }
 
     private var displayObjects: [DIDLObject] {
