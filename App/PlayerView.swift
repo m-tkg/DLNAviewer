@@ -132,6 +132,7 @@ private struct iOSPlayer: View {
     // 現在シーンの解析・画像検索
     @State private var analysisImage: CapturedImage?
     @State private var shareImage: CapturedImage?
+    @State private var showingTagEditor = false
     @State private var dragStartTime: Double?
     @State private var dragUnit: Double = 60
     @State private var pendingSeekTarget: Double?
@@ -231,7 +232,7 @@ private struct iOSPlayer: View {
                     .onChange(of: geo.size.height) { _, h in viewHeight = h }
             }
         }
-        // コントロール非表示中、左右スワイプでシーク（上半分=60秒/単位・下半分=30秒/単位）。
+        // 左右スワイプでシーク（コントロール表示中も可。上半分=60秒/単位・下半分=30秒/単位）。
         .gesture(seekDrag)
         // 長押しで評価＋サムネイル設定＋シーン解析メニュー。
         .contextMenu {
@@ -242,6 +243,9 @@ private struct iOSPlayer: View {
                 if time.isFinite { ThumbnailsModel.shared.set(time, for: item) }
             } label: {
                 Label("このシーンをサムネイルにする", systemImage: "photo")
+            }
+            Button { showingTagEditor = true } label: {
+                Label("タグを編集…", systemImage: "tag")
             }
             Divider()
             Button {
@@ -257,6 +261,9 @@ private struct iOSPlayer: View {
         }
         .sheet(item: $analysisImage) { captured in
             SceneAnalysisView(image: captured.image)
+        }
+        .sheet(isPresented: $showingTagEditor) {
+            TagEditorView(item: item)
         }
         .sheet(item: $shareImage) { captured in
             ShareSheet(items: [captured.image])
@@ -578,15 +585,14 @@ private struct iOSPlayer: View {
     }
 
     /// プレイヤー上のドラッグ。
-    /// - 横方向（コントロール非表示時）: シーク。上半分=60秒・下半分=30秒を単位に移動。
+    /// - 横方向: シーク。上半分=60秒・下半分=30秒を単位に移動（コントロール表示中も可）。
     /// - 縦方向: 回転。縦状態で上スワイプ→横、横状態で下スワイプ→縦（YouTube ライク）。
     private var seekDrag: some Gesture {
         DragGesture(minimumDistance: 20, coordinateSpace: .local)
             .onChanged { value in
                 guard hasSource, duration > 0 else { return }
-                // 横方向が主のドラッグだけシークプレビューを出す（コントロール非表示時のみ）。
-                guard !controlsVisible,
-                      abs(value.translation.width) > abs(value.translation.height) else { return }
+                // 横方向が主のドラッグだけシークプレビューを出す（コントロール表示中も可）。
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
                 if dragStartTime == nil {
                     dragStartTime = currentTime
                     dragUnit = Double(value.startLocation.y < viewHeight / 2 ? seekUnitTop : seekUnitBottom)
@@ -607,9 +613,10 @@ private struct iOSPlayer: View {
                 endScrub()   // 元の再生/停止状態へ戻す
 
                 if isHorizontal {
-                    guard !controlsVisible, let target else { return }
+                    guard let target else { return }
                     seeker.seek(toSeconds: target, tolerance: 0)   // 最終位置へ正確にシーク
                     currentTime = target
+                    if controlsVisible { scheduleAutoHide() }      // 操作中は自動非表示を延長
                 } else {
                     // 縦スワイプ
                     guard abs(value.translation.height) > rotateThreshold else { return }

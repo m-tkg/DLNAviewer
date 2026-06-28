@@ -22,6 +22,7 @@ struct BrowseView: View {
     @State private var showingSettings = false
     @State private var showingTagFilter = false
     @State private var tagEditItem: MediaItem?
+    @State private var favorites = FavoritesModel.shared
 
     private let client = ContentDirectoryClient()
 
@@ -93,7 +94,7 @@ struct BrowseView: View {
             SettingsView()
         }
         .sheet(item: $tagEditItem) { item in
-            TagEditorView(item: item)
+            TagEditorView(item: item, folderName: title)
         }
         .sheet(isPresented: $showingTagFilter) {
             TagFilterView { tag in
@@ -245,6 +246,7 @@ struct BrowseView: View {
                 NavigationLink(value: BrowseRoute(server: server, objectID: container.id, title: container.title)) {
                     Label(container.title, systemImage: "folder")
                 }
+                .contextMenu { folderMenu(container) }
             case .item(let item):
                 NavigationLink(value: playerRoute(for: item)) {
                     VideoRow(item: item, rating: ratings.rating(for: item), thumbSize: listThumbSize)
@@ -272,6 +274,7 @@ struct BrowseView: View {
                             folderTile(container)
                         }
                         .buttonStyle(.plain)
+                        .contextMenu { folderMenu(container) }
                     case .item(let item):
                         NavigationLink(value: playerRoute(for: item)) {
                             videoTile(item)
@@ -349,6 +352,21 @@ struct BrowseView: View {
             Button { ratings.set(.none, for: item) } label: {
                 Label("クリア", systemImage: "xmark")
             }.tint(.gray)
+        }
+    }
+
+    /// フォルダの長押しメニュー：お気に入り登録/解除。
+    @ViewBuilder
+    private func folderMenu(_ container: MediaContainer) -> some View {
+        let isFavorite = favorites.contains(serverID: server.id, objectID: container.id)
+        Button {
+            favorites.toggle(server: server, objectID: container.id, title: container.title)
+        } label: {
+            if isFavorite {
+                Label("お気に入り解除", systemImage: "star.slash")
+            } else {
+                Label("お気に入りに追加", systemImage: "star")
+            }
         }
     }
 

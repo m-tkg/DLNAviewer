@@ -24,6 +24,7 @@ final class CloudSync: NSObject, @unchecked Sendable {
         "browseGridMode", "filterLike", "filterDislike", "filterNone",
         // ストア（JSON Data）
         "manualServers", "videoRatings", "videoBookmarks", "thumbnailOverrides", "videoTags",
+        "favoriteFolders",
     ]
 
     /// メインスレッドから呼ぶ。
