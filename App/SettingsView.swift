@@ -111,6 +111,11 @@ struct SettingsView: View {
                 Button("キャンセル", role: .cancel) {}
             }
         }
+        #if os(macOS)
+        // sheet はコンテンツ駆動で幅が詰まり、LabeledContent のラベル（例「現在のバージョン」）
+        // が見切れる。十分な最小サイズを与える。
+        .frame(minWidth: 460, idealWidth: 480, minHeight: 560)
+        #endif
     }
 
     private func refreshStorage() {
