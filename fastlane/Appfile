@@ -1,0 +1,4 @@
+app_identifier("com.mtkg.dlnaviewer")
+team_id("G72M73C546") # Apple Developer のチーム ID（署名用）
+
+# Apple ID / itc_team_id は API キー認証のため不要。

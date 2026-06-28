@@ -13,3 +13,17 @@ App/Info.plist
 
 # Claude Code（ローカル設定・一時ファイル）
 .claude/
+
+# fastlane
+fastlane/.env
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/test_output/
+build/
+*.ipa
+*.app.dSYM.zip
+# App Store Connect API キー（秘密情報。リポジトリ外に置くこと）
+AuthKey_*.p8
+# bundler
+.bundle/
+vendor/bundle/

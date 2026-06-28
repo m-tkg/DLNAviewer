@@ -1,0 +1,44 @@
+# fastlane で TestFlight へ配布する。
+# 認証は App Store Connect API キー（.p8）。詳細は fastlane/.env.example を参照。
+
+default_platform(:ios)
+
+APP_IDENTIFIER = "com.mtkg.dlnaviewer".freeze
+
+platform :ios do
+  desc "TestFlight へアップロード（iOS / iPadOS）"
+  lane :beta do
+    # .xcodeproj はリポジトリ未コミット（xcodegen 生成物）なので毎回再生成する。
+    sh("cd .. && xcodegen generate")
+
+    api_key = app_store_connect_api_key(
+      key_id: ENV.fetch("ASC_KEY_ID"),
+      issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+      key_filepath: ENV.fetch("ASC_KEY_PATH")
+    )
+
+    # TestFlight 上の最新ビルド番号 +1 を採番（無ければ 1）。
+    next_build = latest_testflight_build_number(
+      api_key: api_key,
+      app_identifier: APP_IDENTIFIER,
+      initial_build_number: 0
+    ) + 1
+
+    # 生成物を汚さないよう、ビルド番号はビルド時引数で注入。自動署名は
+    # -allowProvisioningUpdates で解決する。
+    build_app(
+      project: "DLNAviewer.xcodeproj",
+      scheme: "DLNAviewer",
+      destination: "generic/platform=iOS",
+      export_method: "app-store",
+      output_directory: "build",
+      xcargs: "-allowProvisioningUpdates CURRENT_PROJECT_VERSION=#{next_build}"
+    )
+
+    upload_to_testflight(
+      api_key: api_key,
+      app_identifier: APP_IDENTIFIER,
+      skip_waiting_for_build_processing: true
+    )
+  end
+end
