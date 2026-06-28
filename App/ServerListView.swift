@@ -9,6 +9,9 @@ struct ServerListView: View {
     @State private var showingAdd = false
     @State private var showingSettings = false
     @Environment(\.scenePhase) private var scenePhase
+    #if os(macOS)
+    @State private var updater = UpdateChecker.shared
+    #endif
 
     private var settingsPlacement: ToolbarItemPlacement {
         #if os(iOS)
@@ -84,6 +87,10 @@ struct ServerListView: View {
                 CloudSync.shared.start()
                 model.reload()
                 // 起動時の自動探索は行わない（手動の自動探索ボタン／引き下げ更新で実行）。
+                #if os(macOS)
+                // 起動時にサイレントで更新チェック。新版があれば下の .alert で確認する。
+                await updater.checkOnLaunch()
+                #endif
             }
             // iCloud 同期で他デバイスの変更を取り込んだらキャッシュを再読込。
             .onReceive(NotificationCenter.default.publisher(for: .cloudSyncDidUpdate)) { _ in
@@ -94,6 +101,21 @@ struct ServerListView: View {
                 favorites.reload()
                 model.reload()
             }
+            #if os(macOS)
+            // 起動時チェックで新版が見つかったときの確認ダイアログ。
+            .alert("新しいバージョンがあります", isPresented: Binding(
+                get: { updater.launchPrompt != nil },
+                set: { if !$0 { updater.dismissLaunchPrompt() } }
+            ), presenting: updater.launchPrompt) { release in
+                Button("今すぐ更新") {
+                    updater.dismissLaunchPrompt()
+                    Task { await updater.update(to: release) }
+                }
+                Button("後で", role: .cancel) { updater.dismissLaunchPrompt() }
+            } message: { release in
+                Text("バージョン \(release.tagName) が利用可能です（現在 \(updater.currentVersion)）。今すぐダウンロードして更新しますか？ 更新後は自動で再起動します。")
+            }
+            #endif
         }
         .environment(ratings)
         // 他アプリ等から戻った時（前面化）に PiP が起動中なら自動解除する。
