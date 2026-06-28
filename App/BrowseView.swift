@@ -145,19 +145,20 @@ struct BrowseView: View {
                 }
             }
             ToolbarItem(placement: .primaryAction) {
-                Button {
-                    gridMode.toggle()
-                } label: {
-                    Label(gridMode ? "リスト表示" : "アイコン表示",
-                          systemImage: gridMode ? "list.bullet" : "square.grid.2x2")
-                }
-                // 長押し(iOS)/右クリック(macOS)で、今表示している一覧をクリップボードにコピー。
-                .contextMenu {
+                // タップで表示切替、長押し（iOS）/メニュー（macOS）で一覧をコピー。
+                // ツールバーボタンでは .contextMenu / .onLongPressGesture が iOS で効かないため
+                // primaryAction 付き Menu を使う（タップ=主アクション・長押し=メニュー）。
+                Menu {
                     Button {
                         copyDisplayedList()
                     } label: {
                         Label("一覧をコピー", systemImage: "doc.on.doc")
                     }
+                } label: {
+                    Label(gridMode ? "リスト表示" : "アイコン表示",
+                          systemImage: gridMode ? "list.bullet" : "square.grid.2x2")
+                } primaryAction: {
+                    gridMode.toggle()
                 }
             }
             ToolbarItem(placement: .primaryAction) {
