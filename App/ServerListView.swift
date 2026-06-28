@@ -83,7 +83,7 @@ struct ServerListView: View {
             .task {
                 CloudSync.shared.start()
                 model.reload()
-                await model.discover()
+                // 起動時の自動探索は行わない（手動の自動探索ボタン／引き下げ更新で実行）。
             }
             // iCloud 同期で他デバイスの変更を取り込んだらキャッシュを再読込。
             .onReceive(NotificationCenter.default.publisher(for: .cloudSyncDidUpdate)) { _ in
@@ -106,14 +106,54 @@ struct ServerListView: View {
 
     private var serverList: some View {
         List {
-            let downloaded = DownloadManager.shared.downloadedItems()
-            if !downloaded.isEmpty {
-                Section {
-                    NavigationLink(value: TopRoute.downloads) {
-                        Label("ダウンロード済み（\(downloaded.count)）", systemImage: "arrow.down.circle.fill")
+            // 1. DLNA サーバー（登録済み）
+            if !model.servers.isEmpty {
+                Section("登録済み") {
+                    ForEach(model.servers) { state in
+                        ServerRow(state: state)
+                            .swipeActions {
+                                Button(role: .destructive) {
+                                    model.remove(state)
+                                } label: {
+                                    Label("削除", systemImage: "trash")
+                                }
+                            }
+                            // macOS は右クリック、iOS は長押しで削除できる。
+                            .contextMenu {
+                                Button(role: .destructive) {
+                                    model.remove(state)
+                                } label: {
+                                    Label("削除", systemImage: "trash")
+                                }
+                            }
+                    }
+                    .onDelete { indexSet in
+                        for index in indexSet {
+                            model.remove(model.servers[index])
+                        }
                     }
                 }
             }
+            // 2. ネットワーク上で発見したサーバー
+            if !model.discovered.isEmpty {
+                Section("ネットワーク上で発見") {
+                    ForEach(model.discovered) { server in
+                        NavigationLink(value: BrowseRoute(server: server, objectID: "0", title: server.friendlyName)) {
+                            Label {
+                                VStack(alignment: .leading) {
+                                    Text(server.friendlyName)
+                                    Text(server.descriptionURL.host ?? "")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            } icon: {
+                                Image(systemName: "wifi")
+                            }
+                        }
+                    }
+                }
+            }
+            // 3. お気に入り
             if !favorites.folders.isEmpty {
                 Section("お気に入り") {
                     ForEach(favorites.folders) { folder in
@@ -146,48 +186,12 @@ struct ServerListView: View {
                     }
                 }
             }
-            if !model.servers.isEmpty {
-                Section("登録済み") {
-                    ForEach(model.servers) { state in
-                        ServerRow(state: state)
-                            .swipeActions {
-                                Button(role: .destructive) {
-                                    model.remove(state)
-                                } label: {
-                                    Label("削除", systemImage: "trash")
-                                }
-                            }
-                            // macOS は右クリック、iOS は長押しで削除できる。
-                            .contextMenu {
-                                Button(role: .destructive) {
-                                    model.remove(state)
-                                } label: {
-                                    Label("削除", systemImage: "trash")
-                                }
-                            }
-                    }
-                    .onDelete { indexSet in
-                        for index in indexSet {
-                            model.remove(model.servers[index])
-                        }
-                    }
-                }
-            }
-            if !model.discovered.isEmpty {
-                Section("ネットワーク上で発見") {
-                    ForEach(model.discovered) { server in
-                        NavigationLink(value: BrowseRoute(server: server, objectID: "0", title: server.friendlyName)) {
-                            Label {
-                                VStack(alignment: .leading) {
-                                    Text(server.friendlyName)
-                                    Text(server.descriptionURL.host ?? "")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            } icon: {
-                                Image(systemName: "wifi")
-                            }
-                        }
+            // 4. ダウンロード済み（末尾）
+            let downloaded = DownloadManager.shared.downloadedItems()
+            if !downloaded.isEmpty {
+                Section {
+                    NavigationLink(value: TopRoute.downloads) {
+                        Label("ダウンロード済み（\(downloaded.count)）", systemImage: "arrow.down.circle.fill")
                     }
                 }
             }

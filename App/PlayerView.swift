@@ -107,6 +107,11 @@ private struct iOSPlayer: View {
     /// 戻る/進むボタンの秒数、ダブルタップの秒数（設定で変更）。
     @AppStorage("skipSeconds") private var skipSeconds = 10
     @AppStorage("doubleTapSeconds") private var doubleTapSeconds = 30
+    /// 再生速度（倍率）。好みの速度を端末に永続化し、次回・次アイテムへ引き継ぐ。
+    @AppStorage("playbackRate") private var playbackRate = 1.0
+
+    /// 速度メニューのプリセット。
+    private static let speedOptions: [Double] = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
 
     // 再生・PiP・描画レイヤーは永続モデルが保持する（画面遷移をまたいで継続）。
     private var player: AVPlayer { PlaybackModel.shared.player }
@@ -132,6 +137,8 @@ private struct iOSPlayer: View {
     // 現在シーンの解析・画像検索
     @State private var analysisImage: CapturedImage?
     @State private var shareImage: CapturedImage?
+    // 複数人が写っている時の顔選択シート。
+    @State private var faceCandidates: FaceCandidates?
     @State private var showingTagEditor = false
     @State private var showingFullTitle = false
     @State private var dragStartTime: Double?
@@ -246,6 +253,9 @@ private struct iOSPlayer: View {
         }
         .sheet(item: $shareImage) { captured in
             ShareSheet(items: [captured.image])
+        }
+        .sheet(item: $faceCandidates) { candidates in
+            FacePickerView(image: candidates.image, faces: candidates.faces)
         }
         .statusBarHidden(!controlsVisible)
     }
@@ -379,6 +389,29 @@ private struct iOSPlayer: View {
         } label: {
             Label("このシーンを画像検索…", systemImage: "magnifyingglass")
         }
+        Button {
+            searchActorByFace()
+        } label: {
+            Label("俳優を顔で調べる…", systemImage: "person.fill.viewfinder")
+        }
+    }
+
+    /// 現在フレームから顔を検出し、俳優を画像検索（Google Lens 等）する。
+    /// 0 人＝フレーム全体／1 人＝顔をクロップして検索／複数＝顔選択シートを表示。
+    private func searchActorByFace() {
+        pausePlayback()
+        Task {
+            guard let image = await captureFrame() else { return }
+            let faces = await FaceFinder.faces(in: image)
+            switch faces.count {
+            case 0:
+                shareImage = CapturedImage(image: image)
+            case 1:
+                shareImage = CapturedImage(image: FaceCropper.crop(image, to: faces[0]) ?? image)
+            default:
+                faceCandidates = FaceCandidates(image: image, faces: faces)
+            }
+        }
     }
 
     private var controlsOverlay: some View {
@@ -470,6 +503,21 @@ private struct iOSPlayer: View {
                 Image(systemName: playInSilentMode ? "speaker.wave.2.fill" : "speaker.slash.fill")
                     .font(.title3)
             }
+            // 再生速度（倍率）。タップでプリセットから選択。
+            Menu {
+                Picker("再生速度", selection: $playbackRate) {
+                    ForEach(Self.speedOptions, id: \.self) { rate in
+                        Text(Self.rateLabel(rate)).tag(rate)
+                    }
+                }
+            } label: {
+                Text(Self.rateLabel(playbackRate))
+                    .font(.subheadline.weight(.semibold).monospacedDigit())
+            }
+            .onChange(of: playbackRate) { _, _ in
+                applyPlaybackRate()
+                scheduleAutoHide()
+            }
         }
         .padding(.horizontal)
         .padding(.vertical, 12)
@@ -478,6 +526,8 @@ private struct iOSPlayer: View {
             if showingFullTitle {
                 Text(item.title)
                     .font(.subheadline)
+                    // 親（トップバー）の高さに収めようと省略されるのを防ぎ、必要な行数を確保する。
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal)
                     .padding(.vertical, 8)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -525,6 +575,12 @@ private struct iOSPlayer: View {
         HStack(spacing: 10) {
             Text(Self.timeString(currentTime))
                 .font(.caption.monospacedDigit())
+            // 現在位置より前のブックマークへ（無ければ先頭へ）。
+            Button { goToPreviousBookmark() } label: {
+                Image(systemName: "backward.frame.fill")
+            }
+            .font(.title3)
+            .tint(.yellow)
             Slider(
                 value: $currentTime,
                 in: 0...max(duration, 0.1)
@@ -540,11 +596,40 @@ private struct iOSPlayer: View {
                 }
             }
             .overlay { bookmarkMarkers }   // シークバー上にブックマーク位置を表示
+            // 現在位置より後のブックマークへ（無ければ何もしない）。
+            Button { goToNextBookmark() } label: {
+                Image(systemName: "forward.frame.fill")
+            }
+            .font(.title3)
+            .tint(.yellow)
             Text(Self.timeString(duration))
                 .font(.caption.monospacedDigit())
         }
         .padding(.horizontal)
         .padding(.bottom, 12)
+    }
+
+    /// 現在位置より前のブックマークへ移動。2秒以内に直前のブックマークがある場合は
+    /// 「通過したばかり」とみなしてさらに一つ前へ。前が無ければ先頭(0)へ戻る。
+    private func goToPreviousBookmark() {
+        let marks = BookmarksModel.shared.bookmarks(for: item)
+        let preceding = marks.filter { $0 <= currentTime + 0.001 }   // 現在位置以前
+        guard let nearest = preceding.last else {
+            seekTo(0)
+            return
+        }
+        if currentTime - nearest <= 2.0 {
+            seekTo(preceding.dropLast().last ?? 0)
+        } else {
+            seekTo(nearest)
+        }
+    }
+
+    /// 現在位置より後の最初のブックマークへ移動。無ければ何もしない。
+    private func goToNextBookmark() {
+        let marks = BookmarksModel.shared.bookmarks(for: item)
+        guard let next = marks.first(where: { $0 > currentTime + 0.001 }) else { return }
+        seekTo(next)
     }
 
     private var bookmarkMarkers: some View {
@@ -579,7 +664,22 @@ private struct iOSPlayer: View {
         }
         hasSource = true
         isPlaying = true
+        applyPlaybackRate()
         scheduleAutoHide()
+    }
+
+    /// 現在の再生速度をプレイヤーへ反映する。再生中なら即時、停止中は次回 play() に反映。
+    private func applyPlaybackRate() {
+        let rate = Float(playbackRate)
+        player.defaultRate = rate
+        if player.timeControlStatus != .paused {
+            player.rate = rate
+        }
+    }
+
+    /// 速度ラベル（例: 1x / 1.5x / 0.75x）。
+    private static func rateLabel(_ rate: Double) -> String {
+        "\(String(format: "%g", rate))x"
     }
 
     private func tick() {
