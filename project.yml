@@ -33,9 +33,13 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.mtkg.dlnaviewer
         GENERATE_INFOPLIST_FILE: NO
-        CODE_SIGN_ENTITLEMENTS: App/DLNAviewer.entitlements
-        ENABLE_HARDENED_RUNTIME: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # エンタイトルメントはプラットフォーム別に分ける。共有すると iOS に macOS 専用キー
+        # （com.apple.security.app-sandbox）が混ざり、iOS の App Store 配布署名が失敗する。
+        CODE_SIGN_ENTITLEMENTS: App/DLNAviewer-iOS.entitlements
+        "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": App/DLNAviewer-macOS.entitlements
+        # Hardened Runtime は macOS 専用。
+        "ENABLE_HARDENED_RUNTIME[sdk=macosx*]": YES
     info:
       path: App/Info.plist
       properties:

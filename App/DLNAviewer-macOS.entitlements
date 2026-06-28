@@ -4,20 +4,12 @@
 <dict>
 	<!-- macOS: App Sandbox 内では SSDP マルチキャストが受信できない（macOS には
 	     iOS 相当の multicast エンタイトルメントが無い）ため、自動探索を成立させる
-	     目的でサンドボックスを無効化している。個人利用・非 Mac App Store 配布が前提。
-	     iOS はこのキーを無視し、常にサンドボックスで動作する。 -->
+	     目的でサンドボックスを無効化している。個人利用・非 Mac App Store 配布が前提。 -->
 	<key>com.apple.security.app-sandbox</key>
 	<false/>
 
 	<!-- iCloud Key-Value Store（設定・評価・ブックマーク・手動サーバーをデバイス間同期）。 -->
 	<key>com.apple.developer.ubiquity-kvstore-identifier</key>
 	<string>$(TeamIdentifierPrefix)$(CFBundleIdentifier)</string>
-
-	<!-- iOS で SSDP 自動探索を使う場合は以下を有効化する。
-	     ただし Apple の承認（Multicast Networking Entitlement Request）が必要。
-	     承認前に有効化すると iOS 実機ビルドが失敗する。macOS では不要。
-	<key>com.apple.developer.networking.multicast</key>
-	<true/>
-	-->
 </dict>
 </plist>
