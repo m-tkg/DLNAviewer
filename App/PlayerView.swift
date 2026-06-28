@@ -194,10 +194,12 @@ private struct iOSPlayer: View {
             Color.black.ignoresSafeArea()
             if hasSource {
                 PlayerLayerView().ignoresSafeArea()
-                // コントロールの下にタップ層（シングル=表示切替・ダブル=左右スキップ）。
-                tapLayer.ignoresSafeArea()
                 if controlsVisible {
+                    // 表示中はオーバーレイ内にタップ層を内蔵（バーが最前面で必ず反応）。
                     controlsOverlay.transition(.opacity)
+                } else {
+                    // 非表示中はタップ層のみ（シングル=表示・ダブル=左右スキップ）。
+                    tapLayer.ignoresSafeArea()
                 }
             } else {
                 ContentUnavailableView(
@@ -371,24 +373,27 @@ private struct iOSPlayer: View {
     // MARK: コントロールオーバーレイ
 
     private var controlsOverlay: some View {
-        VStack(spacing: 0) {
-            topBar
-            tagBar
-            Spacer()
-            centerControls
-            Spacer()
-            bottomBar
-        }
-        .foregroundStyle(.white)
-        .background {
+        ZStack {
             LinearGradient(
                 colors: [.black.opacity(0.55), .clear, .clear, .black.opacity(0.55)],
                 startPoint: .top, endPoint: .bottom
             )
             .ignoresSafeArea()
-            // 背景はタップを奪わない。空き領域のシングル/ダブルタップを下層の tapLayer へ通す
-            // （コントロール表示中もダブルタップスキップ・タップで表示切替が効く）。
-            .allowsHitTesting(false)
+            .allowsHitTesting(false)   // 装飾。タップは下の tapLayer / バーへ。
+
+            // 空き領域のタップ層（グラデの上・バーの下）。シングル=表示切替、ダブル=スキップ。
+            tapLayer.ignoresSafeArea()
+
+            // バー（ボタン）は最前面。空き領域以外のタップは必ずボタンに届く。
+            VStack(spacing: 0) {
+                topBar
+                tagBar
+                Spacer()
+                centerControls
+                Spacer()
+                bottomBar
+            }
+            .foregroundStyle(.white)
         }
     }
 

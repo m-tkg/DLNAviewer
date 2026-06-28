@@ -1,5 +1,8 @@
 import SwiftUI
 import DLNAKit
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// フォルダ（コンテナ）の中身を一覧表示する画面。
 struct BrowseView: View {
@@ -23,6 +26,10 @@ struct BrowseView: View {
     @State private var showingTagFilter = false
     @State private var tagEditItem: MediaItem?
     @State private var favorites = FavoritesModel.shared
+    @State private var detectingChapters = false
+    @State private var chapterRun: ChapterRun?
+    @State private var chapterTask: Task<Void, Never>?
+    @State private var chapterResult: String?
 
     private let client = ContentDirectoryClient()
 
@@ -57,6 +64,41 @@ struct BrowseView: View {
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) { searchBar }
+        .overlay {
+            if detectingChapters, let run = chapterRun {
+                ZStack {
+                    Color.black.opacity(0.35).ignoresSafeArea()
+                    VStack(spacing: 12) {
+                        Text("チャプターを解析中…").font(.callout)
+                        ProgressView(value: run.progress)
+                            .frame(width: 200)
+                        HStack(spacing: 6) {
+                            Text("\(Int(run.progress * 100))%")
+                            Text("·")
+                            Image(systemName: "bookmark.fill").foregroundStyle(.yellow)
+                            Text("\(run.count) 個")
+                        }
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        Button(role: .cancel) {
+                            chapterTask?.cancel()
+                        } label: {
+                            Label("キャンセル", systemImage: "xmark.circle")
+                        }
+                        .padding(.top, 4)
+                    }
+                    .padding(24)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+                }
+            }
+        }
+        .alert("自動チャプター", isPresented: Binding(
+            get: { chapterResult != nil }, set: { if !$0 { chapterResult = nil } }
+        )) {
+            Button("OK") { chapterResult = nil }
+        } message: {
+            if let chapterResult { Text(chapterResult) }
+        }
         .navigationTitle(title)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -333,6 +375,15 @@ struct BrowseView: View {
                         .background(rating == .like ? .green : .red, in: Circle())
                         .padding(6)
                 }
+                // ブックマークがある動画は左上にアイコン表示。
+                if !BookmarksModel.shared.bookmarks(for: item).isEmpty {
+                    Image(systemName: "bookmark.fill")
+                        .font(.caption)
+                        .foregroundStyle(.yellow)
+                        .shadow(radius: 1)
+                        .padding(6)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                }
                 // ダウンロード済みは左下に表示。
                 if DownloadManager.shared.state(for: item).isDownloaded {
                     Image(systemName: "checkmark.circle.fill")
@@ -396,8 +447,72 @@ struct BrowseView: View {
         Button { tagEditItem = item } label: {
             Label("タグを編集…", systemImage: "tag")
         }
+        Button { detectChapters(for: item) } label: {
+            Label("自動チャプター作成", systemImage: "list.bullet.indent")
+        }
+        .disabled(detectingChapters)
         Divider()
         downloadMenu(for: item)
+    }
+
+    /// 自動チャプターを検出し、ブックマークとして逐次保存する。
+    /// 進捗・件数はリアルタイム反映、キャンセル時は作成途中のチャプターを削除する。
+    private func detectChapters(for item: MediaItem) {
+        guard !detectingChapters else { return }
+        let run = ChapterRun()
+        chapterRun = run
+        detectingChapters = true
+
+        // 別アプリへ切り替えても約30秒は処理を継続できるよう猶予を確保（iOS）。
+        #if canImport(UIKit)
+        var bgTask: UIBackgroundTaskIdentifier = .invalid
+        bgTask = UIApplication.shared.beginBackgroundTask(withName: "ChapterDetect") {
+            if bgTask != .invalid {
+                UIApplication.shared.endBackgroundTask(bgTask)
+                bgTask = .invalid
+            }
+        }
+        #endif
+
+        chapterTask = Task {
+            let result = await ChapterDetector.detect(
+                item: item,
+                onProgress: { fraction in run.progress = fraction },
+                onChapter: { time in
+                    // 既存ブックマークと重複しない新規分だけ保存・記録（ロールバック対象）。
+                    let existed = BookmarksModel.shared.bookmarks(for: item)
+                        .contains { abs($0 - time) < 0.4 }
+                    BookmarksModel.shared.add(time, for: item)
+                    if !existed {
+                        run.addedTimes.append(time)
+                        run.count = run.addedTimes.count
+                    }
+                }
+            )
+
+            if result.cancelled || Task.isCancelled {
+                // キャンセル: この実行で作成したチャプターを取り消す。
+                for time in run.addedTimes {
+                    BookmarksModel.shared.remove(time, for: item)
+                }
+                chapterResult = "キャンセルしました（作成途中の \(run.addedTimes.count) 個を削除）。"
+            } else if run.addedTimes.isEmpty {
+                chapterResult = "チャプターを検出できませんでした。"
+            } else {
+                let source = result.fromMetadata ? "埋め込みチャプター" : "シーン検出"
+                chapterResult = "\(run.addedTimes.count) 個のチャプターをブックマークに保存しました（\(source)）。"
+            }
+
+            detectingChapters = false
+            chapterRun = nil
+            chapterTask = nil
+            #if canImport(UIKit)
+            if bgTask != .invalid {
+                UIApplication.shared.endBackgroundTask(bgTask)
+                bgTask = .invalid
+            }
+            #endif
+        }
     }
 
     /// ダウンロード関連メニュー。
@@ -483,7 +598,17 @@ private struct VideoRow: View {
     var body: some View {
         HStack(spacing: 12) {
             VStack(spacing: 3) {
-                ThumbnailView(item: item, size: thumbSize)
+                ZStack(alignment: .topLeading) {
+                    ThumbnailView(item: item, size: thumbSize)
+                    // ブックマークがある動画は左上にアイコン表示。
+                    if !BookmarksModel.shared.bookmarks(for: item).isEmpty {
+                        Image(systemName: "bookmark.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.yellow)
+                            .shadow(radius: 1)
+                            .padding(3)
+                    }
+                }
                 // ダウンロード中はサムネの下にプログレスバー。
                 if case .downloading(let progress) = DownloadManager.shared.state(for: item) {
                     ProgressView(value: progress)
