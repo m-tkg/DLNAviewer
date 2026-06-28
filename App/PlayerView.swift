@@ -137,8 +137,6 @@ private struct iOSPlayer: View {
     // 現在シーンの解析・画像検索
     @State private var analysisImage: CapturedImage?
     @State private var shareImage: CapturedImage?
-    // 複数人が写っている時の顔選択シート。
-    @State private var faceCandidates: FaceCandidates?
     @State private var showingTagEditor = false
     @State private var showingFullTitle = false
     @State private var dragStartTime: Double?
@@ -263,9 +261,6 @@ private struct iOSPlayer: View {
         }
         .sheet(item: $shareImage) { captured in
             ShareSheet(items: [captured.image])
-        }
-        .sheet(item: $faceCandidates) { candidates in
-            FacePickerView(image: candidates.image, faces: candidates.faces)
         }
         .statusBarHidden(!controlsVisible)
     }
@@ -398,29 +393,6 @@ private struct iOSPlayer: View {
             Task { if let image = await captureFrame() { shareImage = CapturedImage(image: image) } }
         } label: {
             Label("このシーンを画像検索…", systemImage: "magnifyingglass")
-        }
-        Button {
-            searchActorByFace()
-        } label: {
-            Label("俳優を顔で調べる…", systemImage: "person.fill.viewfinder")
-        }
-    }
-
-    /// 現在フレームから顔を検出し、俳優を画像検索（Google Lens 等）する。
-    /// 0 人＝フレーム全体／1 人＝顔をクロップして検索／複数＝顔選択シートを表示。
-    private func searchActorByFace() {
-        pausePlayback()
-        Task {
-            guard let image = await captureFrame() else { return }
-            let faces = await FaceFinder.faces(in: image)
-            switch faces.count {
-            case 0:
-                shareImage = CapturedImage(image: image)
-            case 1:
-                shareImage = CapturedImage(image: FaceCropper.crop(image, to: faces[0]) ?? image)
-            default:
-                faceCandidates = FaceCandidates(image: image, faces: faces)
-            }
         }
     }
 
