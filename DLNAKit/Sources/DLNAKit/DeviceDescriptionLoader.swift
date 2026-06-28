@@ -16,7 +16,7 @@ public struct DeviceDescriptionLoader: Sendable {
     }
 
     public static let urlSessionTransport: Transport = { url in
-        let (data, _) = try await URLSession.shared.data(from: url)
+        let (data, _) = try await DLNAHTTP.data(from: url)
         return data
     }
 

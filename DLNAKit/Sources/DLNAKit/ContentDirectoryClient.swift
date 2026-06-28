@@ -37,7 +37,7 @@ public struct ContentDirectoryClient: Sendable {
     }
 
     public static let urlSessionTransport: Transport = { request in
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await DLNAHTTP.data(for: request)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw ClientError.httpError(http.statusCode)
         }
