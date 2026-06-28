@@ -1,0 +1,160 @@
+name: macOS Release
+
+# macOS 版を GitHub Actions でビルドし、GitHub Release として配布する。
+# （iOS / iPadOS は Xcode Cloud → TestFlight 側で配布する。）
+# 署名・公証用シークレットが未設定なら ad-hoc 署名にフォールバックする。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # 既定の Xcode に macOS 26 SDK が無い場合は以下を有効化してピン留めする。
+      # - uses: maxim-lobanov/setup-xcode@v1
+      #   with:
+      #     xcode-version: latest
+
+      # project.yml の MARKETING_VERSION から vX.Y タグを決める。
+      - name: Resolve version
+        id: ver
+        run: |
+          V=$(grep -m1 'MARKETING_VERSION' project.yml | sed -E 's/.*"([^"]+)".*/\1/')
+          if [ -z "$V" ]; then
+            echo "MARKETING_VERSION not found in project.yml" >&2
+            exit 1
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "tag=v$V" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $V (tag v$V)"
+
+      - name: Check existing release
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${{ steps.ver.outputs.tag }}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Release ${{ steps.ver.outputs.tag }} already exists; skipping."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # 署名用シークレットの有無を判定（未設定なら ad-hoc 署名にフォールバック）。
+      - name: Check signing secrets
+        id: signing
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          if [ -n "${{ secrets.SIGNING_CERTIFICATE_P12_BASE64 }}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::署名証明書のシークレット未設定のため ad-hoc 署名になります（Gatekeeper の警告が残ります）。"
+          fi
+
+      # 公証用シークレットの有無を判定（未設定なら公証をスキップ）。
+      - name: Check notarization secrets
+        id: notary
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          if [ -n "${{ secrets.NOTARY_PASSWORD }}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::公証用シークレット未設定のため notarization をスキップします（Gatekeeper 警告が残ります）。"
+          fi
+
+      - name: Install xcodegen
+        if: steps.check.outputs.exists == 'false'
+        run: brew install xcodegen
+
+      - name: Generate project
+        if: steps.check.outputs.exists == 'false'
+        run: xcodegen generate
+
+      # CI で署名に詰まらないよう未署名でビルドし、後段で自前 codesign する。
+      - name: Build (macOS, Release)
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          xcodebuild -project DLNAviewer.xcodeproj -scheme DLNAviewer \
+            -configuration Release -destination 'platform=macOS' \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+          cp -R "build/Build/Products/Release/DLNAviewer.app" DLNAviewer.app
+
+      # 自己署名/Developer ID 証明書を一時キーチェーンへ取り込む。
+      - name: Import signing certificate
+        if: steps.signing.outputs.present == 'true'
+        env:
+          P12_BASE64: ${{ secrets.SIGNING_CERTIFICATE_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          CERT_PATH="$RUNNER_TEMP/cert.p12"
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PW="$(uuidgen)"
+          echo "$P12_BASE64" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+          security import "$CERT_PATH" -k "$KEYCHAIN" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PW" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          echo "SIGN_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+
+      # Developer ID があれば hardened runtime 署名、無ければ ad-hoc 署名。
+      # iCloud 等の制限付き entitlement は直接配布では効かず公証の妨げになるため付与しない。
+      - name: Sign app
+        if: steps.check.outputs.exists == 'false'
+        env:
+          SIGN_IDENTITY: ${{ secrets.SIGNING_IDENTITY }}
+        run: |
+          if [ "${{ steps.signing.outputs.present }}" = "true" ]; then
+            codesign --force --deep --options runtime --timestamp -s "$SIGN_IDENTITY" DLNAviewer.app
+          else
+            codesign --force --deep -s - DLNAviewer.app
+          fi
+          codesign --verify --verbose DLNAviewer.app
+
+      # Developer ID 署名済みアプリを公証し、チケットを .app に staple する。
+      - name: Notarize and staple
+        if: steps.notary.outputs.present == 'true'
+        env:
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+          NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
+        run: |
+          ditto -c -k --keepParent DLNAviewer.app notarize.zip
+          xcrun notarytool submit notarize.zip \
+            --apple-id "$NOTARY_APPLE_ID" \
+            --password "$NOTARY_PASSWORD" \
+            --team-id "$NOTARY_TEAM_ID" \
+            --wait
+          xcrun stapler staple DLNAviewer.app
+          xcrun stapler validate DLNAviewer.app
+
+      - name: Create zip
+        if: steps.check.outputs.exists == 'false'
+        run: zip -ry DLNAviewer.zip DLNAviewer.app
+
+      - name: Create tag and release
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.ver.outputs.tag }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "${{ steps.ver.outputs.tag }}" \
+            --generate-notes \
+            DLNAviewer.zip
+
+      - name: Clean up keychain
+        if: ${{ always() && steps.signing.outputs.present == 'true' }}
+        run: security delete-keychain "$SIGN_KEYCHAIN" || true
