@@ -244,16 +244,21 @@ private struct iOSPlayer: View {
             } label: {
                 Label("このシーンをサムネイルにする", systemImage: "photo")
             }
-            Button { showingTagEditor = true } label: {
+            Button {
+                pausePlayback()
+                showingTagEditor = true
+            } label: {
                 Label("タグを編集…", systemImage: "tag")
             }
             Divider()
             Button {
+                pausePlayback()
                 Task { if let image = await captureFrame() { analysisImage = CapturedImage(image: image) } }
             } label: {
                 Label("このシーンを調べる", systemImage: "sparkles")
             }
             Button {
+                pausePlayback()
                 Task { if let image = await captureFrame() { shareImage = CapturedImage(image: image) } }
             } label: {
                 Label("このシーンを画像検索…", systemImage: "magnifyingglass")
@@ -561,6 +566,14 @@ private struct iOSPlayer: View {
             isPlaying = true
             scheduleAutoHide()
         }
+    }
+
+    /// 再生中なら一時停止する（シート/解析を開く前に呼ぶ）。
+    private func pausePlayback() {
+        guard player.timeControlStatus != .paused else { return }
+        player.pause()
+        isPlaying = false
+        hideTask?.cancel()
     }
 
     private func seek(to seconds: Double) {
