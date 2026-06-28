@@ -17,7 +17,8 @@ struct SettingsView: View {
     @State private var orphanCount = 0
     @State private var confirmDeleteDownloads = false
     #if os(macOS)
-    @State private var updater = UpdateChecker()
+    // 起動時チェック（ServerListView）と状態を共有する。
+    @State private var updater = UpdateChecker.shared
     #endif
 
     private let options = [5, 10, 15, 30, 45, 60, 90, 120, 180, 300]
