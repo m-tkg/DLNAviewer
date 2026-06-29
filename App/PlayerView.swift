@@ -72,7 +72,7 @@ private struct MacPlayer: View {
             playerItem.preferredForwardBufferDuration = 60
             playerItem.canUseNetworkResourcesForLiveStreamingWhilePaused = true
             let player = AVPlayer(playerItem: playerItem)
-            player.automaticallyWaitsToMinimizeStalling = true
+            player.automaticallyWaitsToMinimizeStalling = false
             self.player = player
             player.play()
         }
@@ -975,7 +975,9 @@ final class PlaybackModel {
 
     private init() {
         host = PlayerUIView(player: player)
-        player.automaticallyWaitsToMinimizeStalling = true
+        // 十分なバッファまで待つと、帯域が動画ビットレートに足りないとき再生が始まらない
+        // （バッファ済みでも待ち続ける）。待たず即再生し、不足時はスタールしつつ進める。
+        player.automaticallyWaitsToMinimizeStalling = false
         player.preventsDisplaySleepDuringVideoPlayback = true
         pip.setup(with: host.playerLayer)
     }
