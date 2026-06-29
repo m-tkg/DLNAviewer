@@ -220,6 +220,7 @@ private struct iOSPlayer: View {
                     ProgressView()
                         .controlSize(.large)
                         .tint(.white)
+                        .allowsHitTesting(false)   // くるくるの上の長押しを下の tapLayer に通す
                 } else if controlsVisible {
                     controlsOverlay.transition(.opacity)
                 }
