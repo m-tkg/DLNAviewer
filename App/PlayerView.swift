@@ -380,6 +380,11 @@ private struct iOSPlayer: View {
     /// 長押しメニュー（評価・サムネ設定・シーン解析）。tapLayer に付与。
     @ViewBuilder
     private var playerMenu: some View {
+        if isWaiting {
+            Section("読み込み状況") {
+                Label(loadStatusText, systemImage: "arrow.triangle.2.circlepath")
+            }
+        }
         RatingMenu(item: item, ratings: ratings)
         Divider()
         Button {
@@ -407,6 +412,28 @@ private struct iOSPlayer: View {
         } label: {
             Label("このシーンを画像検索…", systemImage: "magnifyingglass")
         }
+    }
+
+    /// 再生待ち中に長押しメニューへ出す、その時点のロード状況。
+    private var loadStatusText: String {
+        guard let item = player.currentItem else { return "準備中…" }
+        switch item.status {
+        case .failed: return "読み込みに失敗しました"
+        case .unknown: return "サーバに接続中…"
+        case .readyToPlay:
+            if item.isPlaybackLikelyToKeepUp { return "まもなく再生します" }
+            let ahead = bufferedAheadSeconds(item)
+            return ahead > 0
+                ? String(format: "バッファリング中… 約%.0f秒先まで読み込み", ahead)
+                : "バッファリング中…"
+        @unknown default: return "読み込み中…"
+        }
+    }
+
+    /// 現在位置から先にバッファ済みの秒数。
+    private func bufferedAheadSeconds(_ item: AVPlayerItem) -> Double {
+        guard let range = item.loadedTimeRanges.first?.timeRangeValue else { return 0 }
+        return max(0, CMTimeGetSeconds(range.end) - currentTime)
     }
 
     /// ヘッダ（戻る・タイトル・タグ）。読み込み中とコントロール表示中の両方で出す。
