@@ -4,7 +4,7 @@ import DLNAKit
 /// サーバー一覧画面（アプリのルート）。
 struct ServerListView: View {
     @State private var model = LibraryModel()
-    @State private var ratings = RatingsModel()
+    @State private var ratings = RatingsModel.shared
     @State private var favorites = FavoritesModel.shared
     @State private var showingAdd = false
     @State private var showingSettings = false
@@ -81,7 +81,7 @@ struct ServerListView: View {
                 AddServerView(model: model)
             }
             .sheet(isPresented: $showingSettings) {
-                SettingsView()
+                SettingsView(servers: model.servers.compactMap(\.server) + model.discovered)
             }
             .task {
                 CloudSync.shared.start()
