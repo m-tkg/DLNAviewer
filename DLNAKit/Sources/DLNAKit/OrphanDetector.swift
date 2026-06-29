@@ -33,7 +33,12 @@ public enum OrphanDetector {
         thumbnailKeys: Set<String>,
         downloadKeys: Set<String>
     ) -> OrphanReport {
-        // TODO: 実装（現在はスタブ）。
-        OrphanReport()
+        OrphanReport(
+            ratings: ratingKeys.subtracting(live).sorted(),
+            bookmarks: bookmarkKeys.subtracting(live).sorted(),
+            tags: tagKeys.subtracting(live).sorted(),
+            thumbnails: thumbnailKeys.subtracting(live).sorted(),
+            downloads: downloadKeys.subtracting(live).sorted()
+        )
     }
 }
