@@ -361,7 +361,7 @@ private struct iOSPlayer: View {
     /// 小窓用のコンパクトなシークバー（ブックマークマーカー付き）。
     private var miniSeekBar: some View {
         HStack(spacing: 8) {
-            Text(Self.timeString(currentTime)).font(.caption2.monospacedDigit()).foregroundStyle(.white)
+            Text(Self.timeString(currentTime, padHours: duration >= 3600)).font(.caption2.monospacedDigit()).foregroundStyle(.white)
             CircularSeekBar(value: $currentTime, duration: duration,
                             bookmarks: BookmarksModel.shared.bookmarks(for: item)) { editing in
                 isScrubbing = editing
@@ -369,7 +369,7 @@ private struct iOSPlayer: View {
                     seeker.seek(toSeconds: currentTime, tolerance: 0)   // 離した位置へシーク
                 }
             }
-            Text(Self.timeString(duration)).font(.caption2.monospacedDigit()).foregroundStyle(.white)
+            Text(Self.timeString(duration, padHours: duration >= 3600)).font(.caption2.monospacedDigit()).foregroundStyle(.white)
         }
         .padding(.horizontal, 10)
         .padding(.bottom, 6)
@@ -572,7 +572,7 @@ private struct iOSPlayer: View {
 
     private var bottomBar: some View {
         HStack(spacing: 10) {
-            Text(Self.timeString(currentTime))
+            Text(Self.timeString(currentTime, padHours: duration >= 3600))
                 .font(.caption.monospacedDigit())
             // 現在位置より前のブックマークへ（無ければ先頭へ）。
             Button { goToPreviousBookmark() } label: {
@@ -600,7 +600,7 @@ private struct iOSPlayer: View {
             }
             .font(.title3)
             .tint(.yellow)
-            Text(Self.timeString(duration))
+            Text(Self.timeString(duration, padHours: duration >= 3600))
                 .font(.caption.monospacedDigit())
         }
         .padding(.horizontal)
@@ -851,11 +851,13 @@ private struct iOSPlayer: View {
         scheduleAutoHide()
     }
 
-    static func timeString(_ seconds: Double) -> String {
-        guard seconds.isFinite, seconds >= 0 else { return "0:00" }
+    /// 時間文字列。`padHours` が true なら 1 時間未満でも `h:mm:ss` 形式にして桁を固定する
+    /// （総時間が 1 時間超のとき現在時間の桁ぶれでシークバーの幅が変わるのを防ぐ）。
+    static func timeString(_ seconds: Double, padHours: Bool = false) -> String {
+        guard seconds.isFinite, seconds >= 0 else { return padHours ? "0:00:00" : "0:00" }
         let total = Int(seconds)
         let h = total / 3600, m = (total % 3600) / 60, s = total % 60
-        return h > 0
+        return (h > 0 || padHours)
             ? String(format: "%d:%02d:%02d", h, m, s)
             : String(format: "%d:%02d", m, s)
     }
