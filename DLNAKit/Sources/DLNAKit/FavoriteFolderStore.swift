@@ -6,17 +6,41 @@ public struct FavoriteFolder: Codable, Hashable, Sendable, Identifiable {
     public var server: MediaServer
     public var objectID: String
     public var title: String
+    /// ルート直下からこのフォルダまでのフォルダ名の連なり（サーバー入れ替え時の objectID 再解決用）。
+    /// 旧データには無いため、空のときは再解決せず objectID をそのまま使う。
+    public var path: [String]
 
-    public init(server: MediaServer, objectID: String, title: String) {
+    public init(server: MediaServer, objectID: String, title: String, path: [String] = []) {
         self.id = FavoriteFolder.makeID(serverID: server.id, objectID: objectID)
         self.server = server
         self.objectID = objectID
         self.title = title
+        self.path = path
     }
 
     /// サーバー ID とフォルダ ID から安定した一意キーを作る。
     public static func makeID(serverID: String, objectID: String) -> String {
         "\(serverID)\u{1}\(objectID)"
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, server, objectID, title, path }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        server = try c.decode(MediaServer.self, forKey: .server)
+        objectID = try c.decode(String.self, forKey: .objectID)
+        title = try c.decode(String.self, forKey: .title)
+        path = try c.decodeIfPresent([String].self, forKey: .path) ?? []   // 旧データ互換
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(server, forKey: .server)
+        try c.encode(objectID, forKey: .objectID)
+        try c.encode(title, forKey: .title)
+        try c.encode(path, forKey: .path)
     }
 }
 
@@ -39,14 +63,14 @@ public final class FavoriteFolderStore: @unchecked Sendable {
 
     /// お気に入りを追加する。同一サーバー・同一フォルダが既にあれば重複追加しない。
     @discardableResult
-    public func add(server: MediaServer, objectID: String, title: String) -> FavoriteFolder {
+    public func add(server: MediaServer, objectID: String, title: String, path: [String] = []) -> FavoriteFolder {
         lock.lock(); defer { lock.unlock() }
         var list = load()
         let id = FavoriteFolder.makeID(serverID: server.id, objectID: objectID)
         if let existing = list.first(where: { $0.id == id }) {
             return existing
         }
-        let entry = FavoriteFolder(server: server, objectID: objectID, title: title)
+        let entry = FavoriteFolder(server: server, objectID: objectID, title: title, path: path)
         list.append(entry)
         save(list)
         return entry
@@ -70,7 +94,7 @@ public final class FavoriteFolderStore: @unchecked Sendable {
     /// 登録/解除を切り替える。
     /// - Returns: 切り替え後に登録されていれば `true`、解除されていれば `false`。
     @discardableResult
-    public func toggle(server: MediaServer, objectID: String, title: String) -> Bool {
+    public func toggle(server: MediaServer, objectID: String, title: String, path: [String] = []) -> Bool {
         lock.lock(); defer { lock.unlock() }
         var list = load()
         let id = FavoriteFolder.makeID(serverID: server.id, objectID: objectID)
@@ -79,7 +103,7 @@ public final class FavoriteFolderStore: @unchecked Sendable {
             save(list)
             return false
         } else {
-            list.append(FavoriteFolder(server: server, objectID: objectID, title: title))
+            list.append(FavoriteFolder(server: server, objectID: objectID, title: title, path: path))
             save(list)
             return true
         }

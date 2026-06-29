@@ -27,8 +27,8 @@ final class FavoritesModel {
 
     /// 登録/解除を切り替える。
     @discardableResult
-    func toggle(server: MediaServer, objectID: String, title: String) -> Bool {
-        let added = store.toggle(server: server, objectID: objectID, title: title)
+    func toggle(server: MediaServer, objectID: String, title: String, path: [String] = []) -> Bool {
+        let added = store.toggle(server: server, objectID: objectID, title: title, path: path)
         folders = store.folders()
         return added
     }
