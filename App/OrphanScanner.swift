@@ -50,6 +50,7 @@ final class OrphanScanner {
         let thumbnail = ThumbnailOverrideStore()
         for k in report.thumbnails { thumbnail.setTime(nil, for: k) }
         DownloadManager.shared.removeDownloads(persistentKeys: Set(report.downloads))
+        DownloadManager.shared.removeOrphans()   // 記録と実ファイルの不整合も併せて掃除
         // モデルのキャッシュを更新する。
         RatingsModel.shared.reload()
         BookmarksModel.shared.reload()
