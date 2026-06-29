@@ -137,6 +137,9 @@ private struct iOSPlayer: View {
     // ダブルタップスキップのヒント表示
     @State private var doubleTapHint: (forward: Bool, seconds: Int)?
     @State private var hintTask: Task<Void, Never>?
+    // ダブルタップ＋長押し中の 2 倍速再生
+    @State private var fastForwarding = false
+    @GestureState private var holdingFastForward = false
     // 現在シーンの解析・画像検索
     @State private var analysisImage: CapturedImage?
     @State private var shareImage: CapturedImage?
@@ -209,6 +212,7 @@ private struct iOSPlayer: View {
                 tapLayer
                     .ignoresSafeArea()
                     .gesture(seekDrag)
+                    .highPriorityGesture(fastForwardGesture)
                     .contextMenu { playerMenu }
                 // コントロール表示中はこの上にバーを重ねる。バー領域はタップを吸収し、
                 // 中央の空き領域だけ下の tapLayer に通す。
@@ -249,6 +253,22 @@ private struct iOSPlayer: View {
                 .allowsHitTesting(false)
             }
 
+            // 2 倍速再生中のインジケータ
+            if fastForwarding {
+                VStack {
+                    HStack(spacing: 6) {
+                        Image(systemName: "forward.fill")
+                        Text("2x").font(.headline)
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16).padding(.vertical, 8)
+                    .background(.black.opacity(0.5), in: Capsule())
+                    .padding(.top, 60)
+                    Spacer()
+                }
+                .allowsHitTesting(false)
+            }
+
             // ダブルタップスキップのヒント
             if let hint = doubleTapHint {
                 HStack {
@@ -260,6 +280,9 @@ private struct iOSPlayer: View {
             }
         }
         .contentShape(Rectangle())
+        .onChange(of: holdingFastForward) { _, holding in
+            if holding { engageFastForward() } else { disengageFastForward() }
+        }
         .background {
             // 上半分／下半分の判定に使うビュー高さを取得。
             GeometryReader { geo in
@@ -819,6 +842,35 @@ private struct iOSPlayer: View {
         currentTime = target
         seek(to: target)
         scheduleAutoHide()
+    }
+
+    /// ダブルタップして 2 回目を離さず長押しすると 2 倍速再生、離すと通常速度に戻す。
+    /// 先頭の単発タップ → 2 回目の接地を保持（LongPress）→ 離すまで（Drag）を連結して検出する。
+    /// 単発の長押しメニュー（contextMenu）と区別するため highPriorityGesture で優先する。
+    /// 連結ジェスチャーの Value は Equatable でないため onChanged は使えない。
+    /// updating で「保持中か」を @GestureState に反映し、その変化を onChange で拾って速度を切り替える。
+    /// 指を離すと GestureState が自動で false に戻り、通常速度へ復帰する。
+    private var fastForwardGesture: some Gesture {
+        TapGesture(count: 1)
+            .sequenced(before: LongPressGesture(minimumDuration: 0.25)
+                .sequenced(before: DragGesture(minimumDistance: 0)))
+            .updating($holdingFastForward) { value, state, _ in
+                if case .second(_, let inner) = value, case .second(true, _)? = inner {
+                    state = true
+                }
+            }
+    }
+
+    private func engageFastForward() {
+        guard !fastForwarding, hasSource else { return }
+        fastForwarding = true
+        player.rate = 2.0
+    }
+
+    private func disengageFastForward() {
+        guard fastForwarding else { return }
+        fastForwarding = false
+        player.rate = Float(playbackRate)   // 通常速度で再生継続（スキップしない）
     }
 
     /// コントロールの下に敷くタップ層（左右2分割）。
