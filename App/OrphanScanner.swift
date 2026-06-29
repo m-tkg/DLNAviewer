@@ -69,8 +69,8 @@ final class OrphanScanner {
         let visitKey = "\(controlURL.absoluteString)#\(objectID)"
         guard visited.insert(visitKey).inserted else { return [] }
         var keys = Set<String>()
-        let result = try await client.browse(controlURL: controlURL, objectID: objectID)
-        for obj in result.objects {
+        let objects = try await client.browseAll(controlURL: controlURL, objectID: objectID)
+        for obj in objects {
             switch obj {
             case .container(let container):
                 keys.formUnion(try await collect(controlURL: controlURL, objectID: container.id, depth: depth + 1))
