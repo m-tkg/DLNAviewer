@@ -72,6 +72,22 @@ public struct ContentDirectoryClient: Sendable {
         return try Self.parseBrowseResponse(data, baseURL: controlURL)
     }
 
+    /// 全ページを取得して結合する（大きなフォルダを 1 リクエストで全件取得して詰まるのを避ける）。
+    public func browseAll(
+        controlURL: URL,
+        objectID: String,
+        filter: String = "*",
+        sortCriteria: String = "",
+        pageSize: Int = 200
+    ) async throws -> [DIDLObject] {
+        // スタブ: 1 ページのみ取得（TODO: ページング実装）。
+        let result = try await browse(
+            controlURL: controlURL, objectID: objectID,
+            filter: filter, startingIndex: 0, requestedCount: pageSize, sortCriteria: sortCriteria
+        )
+        return result.objects
+    }
+
     // MARK: - SOAP 組み立て / 解析（純粋関数）
 
     /// SOAP `Browse` リクエストのエンベロープ本体を生成する。
