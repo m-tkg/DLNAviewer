@@ -1,6 +1,8 @@
 import SwiftUI
 import AVFoundation
 import ImageIO
+import UniformTypeIdentifiers
+import CryptoKit
 import DLNAKit
 
 /// 同時実行数を制限するシンプルな非同期セマフォ。
@@ -33,16 +35,45 @@ final class ThumbnailCache: @unchecked Sendable {
     private final class Box { let image: CGImage; init(_ image: CGImage) { self.image = image } }
     private let cache = NSCache<NSString, Box>()
 
+    /// ディスクキャッシュの保存先（Caches 配下。OS が容量逼迫時に自動 purge する）。
+    private let diskDir: URL? = {
+        guard let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return nil }
+        let dir = base.appendingPathComponent("Thumbnails", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+
+    /// メモリ → ディスクの順でキャッシュを引く。ディスクヒット時はメモリにも載せ直す。
     func image(for key: String) -> CGImage? {
-        cache.object(forKey: key as NSString)?.image
+        if let mem = cache.object(forKey: key as NSString)?.image { return mem }
+        guard let url = diskURL(for: key),
+              let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let cg = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+        cache.setObject(Box(cg), forKey: key as NSString)
+        return cg
     }
 
+    /// メモリとディスクの両方へ保存する（再起動後もディスクから即表示できる）。
     func store(_ image: CGImage, for key: String) {
         cache.setObject(Box(image), forKey: key as NSString)
+        guard let url = diskURL(for: key),
+              let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else { return }
+        CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.8] as CFDictionary)
+        CGImageDestinationFinalize(dest)
     }
 
     func clearAll() {
         cache.removeAllObjects()
+        guard let diskDir else { return }
+        try? FileManager.default.removeItem(at: diskDir)
+        try? FileManager.default.createDirectory(at: diskDir, withIntermediateDirectories: true)
+    }
+
+    /// key（URL や persistentKey を含む）を SHA256 でハッシュ化してファイル名にする。
+    private func diskURL(for key: String) -> URL? {
+        guard let diskDir else { return nil }
+        let name = SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined()
+        return diskDir.appendingPathComponent(name + ".jpg")
     }
 
     /// 動画 URL から 1 フレーム（既定 1 秒地点）を生成する。
