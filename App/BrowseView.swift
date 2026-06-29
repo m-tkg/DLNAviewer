@@ -470,14 +470,18 @@ struct BrowseView: View {
     }
 
     private func folderTile(_ container: MediaContainer) -> some View {
-        VStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: 6) {
             ZStack(alignment: .topTrailing) {
-                Image(systemName: "folder.fill")
-                    .font(.system(size: 40))
-                    .foregroundStyle(.tint)
+                // 動画タイルのサムネ枠と同じ寸法計算にして高さを揃える。
+                Color.clear
                     .frame(maxWidth: .infinity)
                     .aspectRatio(16.0 / 9.0, contentMode: .fit)
                     .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                    .overlay {
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 40))
+                            .foregroundStyle(.tint)
+                    }
                 if isFavorite(container) {
                     Image(systemName: "star.fill")
                         .font(.caption)
@@ -488,16 +492,17 @@ struct BrowseView: View {
             Text(container.title)
                 .font(.caption)
                 .lineLimit(2)
-                .multilineTextAlignment(.center)
         }
     }
 
     private func videoTile(_ item: MediaItem) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             ZStack(alignment: .topTrailing) {
-                ThumbnailView(item: item)
-                    .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                // フォルダタイルと同じ寸法計算にして高さを揃える。
+                Color.clear
                     .frame(maxWidth: .infinity)
+                    .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                    .overlay { ThumbnailView(item: item) }
                 let rating = ratings.rating(for: item)
                 if rating != .none {
                     Image(systemName: rating.symbol)
