@@ -15,6 +15,7 @@ struct TagEditorView: View {
     @State private var aiMessage: String?
     @State private var isSuggesting = false
     @State private var isScanningVideo = false
+    @State private var expandedSuggestions: Set<String> = []
     private let tags = TagsModel.shared
 
     private var trimmed: String {
@@ -81,10 +82,16 @@ struct TagEditorView: View {
                     Text("入力すると既存のタグが候補に表示されます。「aaa:bbb」の形式は aaa ごとにまとめて表示します。タグを長押しで名前変更・削除できます。")
                 }
 
-                // 自動補完候補（aaa:bbb は aaa ごとにグループ表示）。
+                // 自動補完候補（aaa:bbb は aaa ごとにグループ表示。見出しタップで展開）。
                 ForEach(TagGrouping.grouped(suggestions)) { group in
                     if let key = group.key {
-                        Section(key) { suggestionRows(group.tags) }
+                        Section {
+                            DisclosureGroup(isExpanded: suggestionExpansionBinding(for: key)) {
+                                suggestionRows(group.tags)
+                            } label: {
+                                Label("\(key)（\(group.tags.count)）", systemImage: "tag.square")
+                            }
+                        }
                     } else {
                         Section { suggestionRows(group.tags) }
                     }
@@ -219,6 +226,14 @@ struct TagEditorView: View {
                 }
             }
         }
+    }
+
+    /// 候補グループの展開状態。入力中（trimmed 非空）は常に展開して候補を隠さない。
+    private func suggestionExpansionBinding(for key: String) -> Binding<Bool> {
+        Binding(
+            get: { !trimmed.isEmpty || expandedSuggestions.contains(key) },
+            set: { if $0 { expandedSuggestions.insert(key) } else { expandedSuggestions.remove(key) } }
+        )
     }
 
     /// グループ内の補完候補行（ラベルを表示。タップでこの動画に付与）。
