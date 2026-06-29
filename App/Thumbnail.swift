@@ -2,10 +2,33 @@ import SwiftUI
 import AVFoundation
 import DLNAKit
 
+/// 同時実行数を制限するシンプルな非同期セマフォ。
+actor AsyncSemaphore {
+    private let limit: Int
+    private var count = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    init(limit: Int) { self.limit = limit }
+
+    func wait() async {
+        if count < limit { count += 1; return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func signal() {
+        if waiters.isEmpty {
+            count = max(0, count - 1)
+        } else {
+            waiters.removeFirst().resume()   // 枠を次の待機者へ引き継ぐ（count は据え置き）
+        }
+    }
+}
+
 /// 生成済みサムネイル（CGImage）の簡易キャッシュ。
 final class ThumbnailCache: @unchecked Sendable {
     static let shared = ThumbnailCache()
 
+    /// フレーム生成の同時実行数を制限する（リストスクロール時に生成が多発するのを防ぐ）。
+    private let limiter = AsyncSemaphore(limit: 4)
     private final class Box { let image: CGImage; init(_ image: CGImage) { self.image = image } }
     private let cache = NSCache<NSString, Box>()
 
@@ -28,6 +51,11 @@ final class ThumbnailCache: @unchecked Sendable {
 
     /// 動画 URL の指定秒のフレームを生成する。
     func generate(from url: URL, at seconds: Double, tolerance: Double = 1, maxSize: CGFloat = 320) async -> CGImage? {
+        if Task.isCancelled { return nil }
+        // 同時実行を制限。スクロールで画面外に消えてキャンセルされたものは生成しない。
+        await limiter.wait()
+        defer { Task { await limiter.signal() } }
+        if Task.isCancelled { return nil }
         let asset = AVURLAsset(url: url)
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
