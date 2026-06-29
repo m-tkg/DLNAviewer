@@ -279,7 +279,10 @@ private struct iOSPlayer: View {
     /// シークバーのドラッグ位置のフレームをプレビュー用に生成する。
     /// 専用ジェネレータを再利用し、低解像度・大きめ tolerance で高速化。最新要求のみ反映する。
     private func requestScrubPreview(at seconds: Double) {
-        guard let url = DownloadManager.shared.preferredURL(for: item) else { return }
+        // ストリーミング(NAS 直接)の URL にドラッグ中のフレーム生成を繰り返すと、AVURLAsset が
+        // NAS への接続を乱造・枯渇させ、別の動画が再生できなくなる。プレビューはローカル
+        // （ダウンロード済み）に限定し、ストリーミングでは追加の接続を作らない。
+        guard let url = DownloadManager.shared.localURL(for: item) else { return }
         scrubPreviewTask?.cancel()
         scrubPreviewTask = Task {
             // プレビューなので低解像度・大きめ tolerance で高速生成。最新要求のみ反映。
