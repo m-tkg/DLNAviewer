@@ -6,6 +6,8 @@ import DLNAKit
 @MainActor
 @Observable
 final class LibraryModel {
+    static let shared = LibraryModel()
+
     /// 1 サーバーの表示状態（記述 URL の解決結果）。
     struct ServerState: Identifiable {
         var entry: ManualServerEntry

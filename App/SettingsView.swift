@@ -3,9 +3,6 @@ import DLNAKit
 
 /// アプリ設定。
 struct SettingsView: View {
-    /// 孤立検出のスキャン対象サーバ（ルートから渡す。空ならスキャン不可）。
-    var servers: [MediaServer] = []
-
     @AppStorage("seekUnitTop") private var seekUnitTop = 60
     @AppStorage("seekUnitBottom") private var seekUnitBottom = 30
     @AppStorage("thumbnailSize") private var thumbnailSize = 1   // 0=小, 1=中, 2=大
@@ -18,7 +15,6 @@ struct SettingsView: View {
 
     @State private var downloadBytes: Int64 = 0
     @State private var cacheBytes: Int64 = 0
-    @State private var orphanCount = 0
     @State private var confirmDeleteDownloads = false
     @State private var orphanScanner = OrphanScanner()
     @State private var orphanScanning = false
@@ -84,16 +80,10 @@ struct SettingsView: View {
                         refreshStorage()
                     }
 
-                    LabeledContent("孤立データ", value: "\(orphanCount) 件")
-                    Button("孤立データを検出して削除", role: .destructive) {
-                        DownloadManager.shared.removeOrphans()
-                        refreshStorage()
-                    }
-                    .disabled(orphanCount == 0)
                 } header: {
                     Text("ストレージ")
                 } footer: {
-                    Text("孤立データ＝記録に無いファイルや、ファイルが失われた記録。キャッシュはサムネイルや HTTP の一時データです。")
+                    Text("キャッシュはサムネイルや HTTP の一時データです。")
                 }
 
                 orphanScanSection
@@ -143,6 +133,11 @@ struct SettingsView: View {
         #endif
     }
 
+    /// 孤立検出のスキャン対象（手動＋発見済みサーバ。どの画面から設定を開いても取得できる）。
+    private var scanServers: [MediaServer] {
+        LibraryModel.shared.servers.compactMap(\.server) + LibraryModel.shared.discovered
+    }
+
     /// サーバ再スキャンによる孤立データ検出セクション。
     @ViewBuilder
     private var orphanScanSection: some View {
@@ -160,11 +155,11 @@ struct SettingsView: View {
                 }
             }
             Button("サーバを再スキャンして検出") { Task { await scanOrphans() } }
-                .disabled(orphanScanning || servers.isEmpty)
+                .disabled(orphanScanning || scanServers.isEmpty)
         } header: {
             Text("孤立データ（サーバ照合）")
         } footer: {
-            Text(servers.isEmpty
+            Text(scanServers.isEmpty
                  ? "サーバ一覧の画面から設定を開くと実行できます。登録サーバを再スキャンし、どのサーバにも存在しない動画のデータを検出します。"
                  : "登録サーバを再スキャンし、どのサーバにも存在しない動画の評価・ブックマーク・タグ・サムネ上書き・ダウンロードを孤立として検出します。全サーバに到達できた場合のみ削除できます。")
         }
@@ -173,13 +168,12 @@ struct SettingsView: View {
     private func scanOrphans() async {
         orphanScanning = true
         defer { orphanScanning = false }
-        orphanOutcome = await orphanScanner.scan(servers: servers)
+        orphanOutcome = await orphanScanner.scan(servers: scanServers)
     }
 
     private func refreshStorage() {
         downloadBytes = DownloadManager.shared.totalDownloadedBytes()
         cacheBytes = Int64(URLCache.shared.currentDiskUsage)
-        orphanCount = DownloadManager.shared.orphanCount()
     }
 
     private func clearCaches() {
