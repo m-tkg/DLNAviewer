@@ -146,6 +146,7 @@ private struct iOSPlayer: View {
     // シークバーのドラッグ中に表示するプレビュー（その位置のフレーム）。
     @State private var scrubPreview: UIImage?
     @State private var scrubPreviewTask: Task<Void, Never>?
+    @State private var scrubPreviewGen = ScrubPreviewGenerator()
 
     /// 縦スワイプで回転とみなす最小移動量。
     private let rotateThreshold: CGFloat = 60
@@ -173,6 +174,7 @@ private struct iOSPlayer: View {
             isScrubbing = false
             hasSource = true
             scrubPreview = nil
+            scrubPreviewGen.reset()
             setUp()
             withAnimation(.easeInOut(duration: 0.2)) { controlsVisible = true }
         }
@@ -279,15 +281,13 @@ private struct iOSPlayer: View {
     /// シークバーのドラッグ位置のフレームをプレビュー用に生成する。
     /// 専用ジェネレータを再利用し、低解像度・大きめ tolerance で高速化。最新要求のみ反映する。
     private func requestScrubPreview(at seconds: Double) {
-        // ストリーミング(NAS 直接)の URL にドラッグ中のフレーム生成を繰り返すと、AVURLAsset が
-        // NAS への接続を乱造・枯渇させ、別の動画が再生できなくなる。プレビューはローカル
-        // （ダウンロード済み）に限定し、ストリーミングでは追加の接続を作らない。
-        guard let url = DownloadManager.shared.localURL(for: item) else { return }
+        // 単一の generator を使い回し、新しい要求で前の生成を中断することで、ストリーミングでも
+        // NAS 接続を 1 本に抑える（位置ごとに AVURLAsset を作ると接続が枯渇する）。
+        guard let url = DownloadManager.shared.preferredURL(for: item) else { return }
+        scrubPreviewGen.prepare(url: url)
         scrubPreviewTask?.cancel()
         scrubPreviewTask = Task {
-            // プレビューなので低解像度・大きめ tolerance で高速生成。最新要求のみ反映。
-            guard let cg = await ThumbnailCache.shared.generate(from: url, at: seconds, tolerance: 1, maxSize: 240),
-                  !Task.isCancelled else { return }
+            guard let cg = await scrubPreviewGen.image(at: seconds), !Task.isCancelled else { return }
             scrubPreview = UIImage(cgImage: cg)
         }
     }
@@ -924,6 +924,52 @@ private struct CircularSeekBar: View {
             )
         }
         .frame(height: 24)
+    }
+}
+
+/// シークプレビュー用の単一画像生成器。
+/// ドラッグ中に位置ごとへ新しい `AVURLAsset` を作ると NAS への接続を枯渇させ、別動画が
+/// 再生できなくなる。1 本の generator を URL 単位で使い回し、新しい要求が来たら前の生成を
+/// 中断することで、ストリーミングでも接続を 1 本に抑えてプレビューを出す。
+final class ScrubPreviewGenerator: @unchecked Sendable {
+    private let lock = NSLock()
+    private var generator: AVAssetImageGenerator?
+    private var sourceURL: URL?
+
+    /// 対象 URL を設定（変わったときだけ generator を作り直す）。
+    func prepare(url: URL) {
+        lock.lock(); defer { lock.unlock() }
+        guard sourceURL != url else { return }
+        generator?.cancelAllCGImageGeneration()
+        let gen = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+        gen.appliesPreferredTrackTransform = true
+        gen.maximumSize = CGSize(width: 240, height: 240)
+        gen.requestedTimeToleranceBefore = CMTime(seconds: 2, preferredTimescale: 600)
+        gen.requestedTimeToleranceAfter = CMTime(seconds: 2, preferredTimescale: 600)
+        generator = gen
+        sourceURL = url
+    }
+
+    /// 現在の generator をロック下で取り出す（同期）。
+    private func currentGenerator() -> AVAssetImageGenerator? {
+        lock.lock(); defer { lock.unlock() }
+        return generator
+    }
+
+    /// 指定秒のフレームを生成する。直前の生成は中断する。
+    func image(at seconds: Double) async -> CGImage? {
+        guard let gen = currentGenerator() else { return nil }
+        gen.cancelAllCGImageGeneration()
+        let time = CMTime(seconds: max(seconds, 0), preferredTimescale: 600)
+        return try? await gen.image(at: time).image
+    }
+
+    /// アイテム切り替え時に破棄する。
+    func reset() {
+        lock.lock(); defer { lock.unlock() }
+        generator?.cancelAllCGImageGeneration()
+        generator = nil
+        sourceURL = nil
     }
 }
 
