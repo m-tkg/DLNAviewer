@@ -50,8 +50,30 @@ final class LibraryModel {
 
     /// 全サーバーの記述 URL を解決する。
     func resolveAll() async {
-        for index in servers.indices {
-            await resolve(at: index)
+        // 各サーバーを並行に解決し、待ち時間を「最も遅い 1 台」に抑える
+        // （到達不能なサーバーがあっても他の解決を待たせない）。self を渡さず loader だけを
+        // 並行タスクに渡し、結果は MainActor でまとめて反映する。
+        let loader = self.loader
+        let entries = servers.indices.map { ($0, servers[$0].entry.descriptionURL) }
+        for (index, _) in entries {
+            servers[index].isLoading = true
+            servers[index].error = nil
+        }
+        let results = await withTaskGroup(of: (Int, MediaServer?, String?).self) { group -> [(Int, MediaServer?, String?)] in
+            for (index, url) in entries {
+                group.addTask {
+                    do { return (index, try await loader.load(descriptionURL: url, origin: .manual), nil) }
+                    catch { return (index, nil, LibraryModel.message(for: error)) }
+                }
+            }
+            var out: [(Int, MediaServer?, String?)] = []
+            for await r in group { out.append(r) }
+            return out
+        }
+        for (index, server, error) in results where servers.indices.contains(index) {
+            servers[index].server = server
+            servers[index].error = error
+            servers[index].isLoading = false
         }
     }
 
@@ -82,18 +104,22 @@ final class LibraryModel {
 
         let responses = await discovery.search()
         let manualURLs = Set(servers.map(\.entry.descriptionURL))
-        var found: [MediaServer] = []
-        var seenIDs = Set<String>()
-        for response in responses {
-            // 手動登録済みの記述 URL は探索一覧から除外する。
-            guard !manualURLs.contains(response.location) else { continue }
-            guard let server = try? await loader.load(descriptionURL: response.location, origin: .discovered) else {
-                continue
+        // 各記述 URL を並行に解決する（直列だと到達不能なサーバーで詰まる）。
+        let loader = self.loader
+        let targets = responses.map(\.location).filter { !manualURLs.contains($0) }
+        let resolved = await withTaskGroup(of: MediaServer?.self) { group -> [MediaServer] in
+            for url in targets {
+                group.addTask { try? await loader.load(descriptionURL: url, origin: .discovered) }
             }
-            guard seenIDs.insert(server.id).inserted else { continue }
-            found.append(server)
+            var found: [MediaServer] = []
+            var seenIDs = Set<String>()
+            for await server in group {
+                guard let server, seenIDs.insert(server.id).inserted else { continue }
+                found.append(server)
+            }
+            return found
         }
-        discovered = found
+        discovered = resolved
     }
 
     /// 手動でサーバー（記述 URL）を追加する。
@@ -129,7 +155,7 @@ final class LibraryModel {
         return url
     }
 
-    static func message(for error: Error) -> String {
+    nonisolated static func message(for error: Error) -> String {
         if let loaderError = error as? DeviceDescriptionLoader.LoaderError {
             switch loaderError {
             case .malformedXML: return "デバイス記述を解析できませんでした"

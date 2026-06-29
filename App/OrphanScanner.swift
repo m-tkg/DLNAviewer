@@ -14,15 +14,18 @@ final class OrphanScanner {
     }
 
     private let client = ContentDirectoryClient()
+    /// 再帰中に訪問済みの「controlURL#objectID」。サイクル遮断用。
+    private var visited = Set<String>()
 
     /// サーバを再帰ブラウズして現存動画の persistentKey を集め、各ストアのキーと照合する。
     func scan(servers: [MediaServer]) async -> Outcome {
+        visited.removeAll()
         var live = Set<String>()
         var allReachable = true
         for server in servers {
             guard let controlURL = server.contentDirectoryControlURL else { continue }
             do {
-                live.formUnion(try await collect(controlURL: controlURL, objectID: "0"))
+                live.formUnion(try await collect(controlURL: controlURL, objectID: "0", depth: 0))
             } catch {
                 // このサーバは到達不能。誤検出を避けるため削除不可フラグを立てる。
                 allReachable = false
@@ -59,13 +62,18 @@ final class OrphanScanner {
     }
 
     /// 1 フォルダ配下を再帰的に走査し、動画の persistentKey 集合を返す。
-    private func collect(controlURL: URL, objectID: String) async throws -> Set<String> {
+    private func collect(controlURL: URL, objectID: String, depth: Int) async throws -> Set<String> {
+        try Task.checkCancellation()
+        // 不正なサーバのコンテナ循環や過大な深さで無限再帰しないよう防ぐ。
+        guard depth < 64 else { return [] }
+        let visitKey = "\(controlURL.absoluteString)#\(objectID)"
+        guard visited.insert(visitKey).inserted else { return [] }
         var keys = Set<String>()
         let result = try await client.browse(controlURL: controlURL, objectID: objectID)
         for obj in result.objects {
             switch obj {
             case .container(let container):
-                keys.formUnion(try await collect(controlURL: controlURL, objectID: container.id))
+                keys.formUnion(try await collect(controlURL: controlURL, objectID: container.id, depth: depth + 1))
             case .item(let item):
                 keys.insert(item.persistentKey)
             }

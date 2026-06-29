@@ -17,6 +17,7 @@ struct SettingsView: View {
     @State private var cacheBytes: Int64 = 0
     @State private var confirmDeleteDownloads = false
     @State private var orphanScanner = OrphanScanner()
+    @State private var orphanScanTask: Task<Void, Never>?
     @State private var orphanScanning = false
     @State private var orphanOutcome: OrphanScanner.Outcome?
     @State private var confirmDeleteOrphans = false
@@ -102,6 +103,7 @@ struct SettingsView: View {
                 }
             }
             .task { refreshStorage() }
+            .onDisappear { orphanScanTask?.cancel() }
             .confirmationDialog("すべてのダウンロードを削除しますか？",
                                 isPresented: $confirmDeleteDownloads, titleVisibility: .visible) {
                 Button("すべて削除", role: .destructive) {
@@ -161,7 +163,7 @@ struct SettingsView: View {
                     Button("孤立データを削除", role: .destructive) { confirmDeleteOrphans = true }
                 }
             }
-            Button("サーバを再スキャンして検出") { Task { await scanOrphans() } }
+            Button("サーバを再スキャンして検出") { orphanScanTask = Task { await scanOrphans() } }
                 .disabled(orphanScanning || scanServers.isEmpty)
         } header: {
             Text("孤立データ（サーバ照合）")
@@ -175,7 +177,8 @@ struct SettingsView: View {
     private func scanOrphans() async {
         orphanScanning = true
         defer { orphanScanning = false }
-        orphanOutcome = await orphanScanner.scan(servers: scanServers)
+        let outcome = await orphanScanner.scan(servers: scanServers)
+        if !Task.isCancelled { orphanOutcome = outcome }
     }
 
     private func refreshStorage() {

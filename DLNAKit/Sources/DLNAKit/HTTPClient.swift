@@ -28,9 +28,11 @@ public enum HTTPRetry {
 public enum DLNAHTTP {
     public static let session: URLSession = {
         let config = URLSessionConfiguration.default
-        config.waitsForConnectivity = true
-        config.timeoutIntervalForRequest = 15
-        config.timeoutIntervalForResource = 60
+        // 到達不能なサーバで長時間ブロックしないよう、接続回復は待たず短めの上限にする
+        // （一時的な不通はリトライ＋呼び出し側の並行化で吸収する）。
+        config.waitsForConnectivity = false
+        config.timeoutIntervalForRequest = 12
+        config.timeoutIntervalForResource = 25
         return URLSession(configuration: config)
     }()
 
