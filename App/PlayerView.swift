@@ -139,7 +139,10 @@ private struct iOSPlayer: View {
     @State private var hintTask: Task<Void, Never>?
     // ダブルタップ＋長押し中の 2 倍速再生
     @State private var fastForwarding = false
-    @GestureState private var holdingFastForward = false
+    @GestureState private var pressHolding = false
+    /// 直近のタップ離し時刻（長押しが「ダブルタップ長押し」か素の長押しかの判定に使う）。
+    @State private var lastTapUp = Date.distantPast
+    @State private var showingActionMenu = false
     // 現在シーンの解析・画像検索
     @State private var analysisImage: CapturedImage?
     @State private var shareImage: CapturedImage?
@@ -212,8 +215,9 @@ private struct iOSPlayer: View {
                 tapLayer
                     .ignoresSafeArea()
                     .gesture(seekDrag)
-                    .highPriorityGesture(fastForwardGesture)
-                    .contextMenu { playerMenu }
+                    .gesture(pressGesture)
+                    // ダブルタップ長押し判定のため、タップの離し時刻を記録する。
+                    .simultaneousGesture(TapGesture(count: 1).onEnded { lastTapUp = Date() })
                 // コントロール表示中はこの上にバーを重ねる。バー領域はタップを吸収し、
                 // 中央の空き領域だけ下の tapLayer に通す。
                 if isWaiting {
@@ -280,8 +284,13 @@ private struct iOSPlayer: View {
             }
         }
         .contentShape(Rectangle())
-        .onChange(of: holdingFastForward) { _, holding in
-            if holding { engageFastForward() } else { disengageFastForward() }
+        .onChange(of: pressHolding) { _, holding in
+            if holding { beginHold() } else { endHold() }
+        }
+        .confirmationDialog("操作", isPresented: $showingActionMenu, titleVisibility: .hidden) {
+            actionMenuButtons
+        } message: {
+            if isWaiting { Text(loadStatusText) }
         }
         .background {
             // 上半分／下半分の判定に使うビュー高さを取得。
@@ -402,40 +411,29 @@ private struct iOSPlayer: View {
 
     // MARK: コントロールオーバーレイ
 
-    /// 長押しメニュー（評価・サムネ設定・シーン解析）。tapLayer に付与。
+    /// 長押しメニュー（評価・サムネ設定・シーン解析）。confirmationDialog に出す。
     @ViewBuilder
-    private var playerMenu: some View {
-        if isWaiting {
-            Section("読み込み状況") {
-                Label(loadStatusText, systemImage: "arrow.triangle.2.circlepath")
-            }
+    private var actionMenuButtons: some View {
+        Button("👍 Like") { ratings.set(.like, for: item) }
+        Button("👎 Dislike") { ratings.set(.dislike, for: item) }
+        if ratings.rating(for: item) != .none {
+            Button("評価なし") { ratings.set(.none, for: item) }
         }
-        RatingMenu(item: item, ratings: ratings)
-        Divider()
-        Button {
+        Button("このシーンをサムネイルにする") {
             let time = player.currentTime().seconds
             if time.isFinite { ThumbnailsModel.shared.set(time, for: item) }
-        } label: {
-            Label("このシーンをサムネイルにする", systemImage: "photo")
         }
-        Button {
+        Button("タグを編集…") {
             pausePlayback()
             showingTagEditor = true
-        } label: {
-            Label("タグを編集…", systemImage: "tag")
         }
-        Divider()
-        Button {
+        Button("このシーンを調べる") {
             pausePlayback()
             Task { if let image = await captureFrame() { analysisImage = CapturedImage(image: image) } }
-        } label: {
-            Label("このシーンを調べる", systemImage: "sparkles")
         }
-        Button {
+        Button("このシーンを画像検索…") {
             pausePlayback()
             Task { if let image = await captureFrame() { shareImage = CapturedImage(image: image) } }
-        } label: {
-            Label("このシーンを画像検索…", systemImage: "magnifyingglass")
         }
     }
 
@@ -847,18 +845,29 @@ private struct iOSPlayer: View {
     /// ダブルタップして 2 回目を離さず長押しすると 2 倍速再生、離すと通常速度に戻す。
     /// 先頭の単発タップ → 2 回目の接地を保持（LongPress）→ 離すまで（Drag）を連結して検出する。
     /// 単発の長押しメニュー（contextMenu）と区別するため highPriorityGesture で優先する。
-    /// 連結ジェスチャーの Value は Equatable でないため onChanged は使えない。
-    /// updating で「保持中か」を @GestureState に反映し、その変化を onChange で拾って速度を切り替える。
-    /// 指を離すと GestureState が自動で false に戻り、通常速度へ復帰する。
-    private var fastForwardGesture: some Gesture {
-        TapGesture(count: 1)
-            .sequenced(before: LongPressGesture(minimumDuration: 0.25)
-                .sequenced(before: DragGesture(minimumDistance: 0)))
-            .updating($holdingFastForward) { value, state, _ in
-                if case .second(_, let inner) = value, case .second(true, _)? = inner {
-                    state = true
-                }
+    /// 長押し（保持）を検出するジェスチャー。LongPress→Drag を連結し、離すまで保持状態を維持する。
+    /// 連結ジェスチャーの Value は Equatable でなく onChanged が使えないため updating で @GestureState に反映し、
+    /// その変化を onChange で拾う。指を離すと GestureState が自動で false に戻る。
+    private var pressGesture: some Gesture {
+        LongPressGesture(minimumDuration: 0.3)
+            .sequenced(before: DragGesture(minimumDistance: 0))
+            .updating($pressHolding) { value, state, _ in
+                if case .second(true, _) = value { state = true }
             }
+    }
+
+    /// 長押しが認識された。直前にタップがあれば「ダブルタップ長押し」とみなし 2 倍速、
+    /// なければ素の長押しとしてメニューを出す。
+    private func beginHold() {
+        if Date().timeIntervalSince(lastTapUp) < 0.5 {
+            engageFastForward()
+        } else {
+            showingActionMenu = true
+        }
+    }
+
+    private func endHold() {
+        disengageFastForward()
     }
 
     private func engageFastForward() {
