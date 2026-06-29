@@ -945,9 +945,11 @@ final class ScrubPreviewGenerator: @unchecked Sendable {
         generator?.cancelAllCGImageGeneration()
         let gen = AVAssetImageGenerator(asset: AVURLAsset(url: url))
         gen.appliesPreferredTrackTransform = true
-        gen.maximumSize = CGSize(width: 240, height: 240)
-        gen.requestedTimeToleranceBefore = CMTime(seconds: 2, preferredTimescale: 600)
-        gen.requestedTimeToleranceAfter = CMTime(seconds: 2, preferredTimescale: 600)
+        // プレビューは画質より速度優先。小さいサイズ＋最寄キーフレームのみ（tolerance 無限大）で
+        // フレーム精度のデコードを省き、最速で生成する（位置は数秒スナップする）。
+        gen.maximumSize = CGSize(width: 160, height: 160)
+        gen.requestedTimeToleranceBefore = .positiveInfinity
+        gen.requestedTimeToleranceAfter = .positiveInfinity
         generator = gen
         sourceURL = url
     }
