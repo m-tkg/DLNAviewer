@@ -143,11 +143,6 @@ private struct iOSPlayer: View {
     @State private var dragUnit: Double = 60
     @State private var pendingSeekTarget: Double?
     @State private var seeker = SmoothSeeker()
-    // シークバーのドラッグ中に表示するプレビュー（その位置のフレーム）。
-    @State private var scrubPreview: UIImage?
-    @State private var scrubPreviewTask: Task<Void, Never>?
-    @State private var scrubPreviewGen = ScrubPreviewGenerator()
-    @State private var lastScrubPreviewSeconds = -Double.infinity
 
     /// 縦スワイプで回転とみなす最小移動量。
     private let rotateThreshold: CGFloat = 60
@@ -167,6 +162,10 @@ private struct iOSPlayer: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .onReceive(ticker) { _ in tick() }
+        // シークバー（スライダー）ドラッグ中も動画を追従させる。
+        .onChange(of: currentTime) { _, newValue in
+            if isScrubbing { seeker.seek(toSeconds: newValue, tolerance: 0.5) }
+        }
         // 前/次の動画へ移動したら読み込み直す。
         .onChange(of: index) { _, _ in
             currentTime = 0
@@ -174,8 +173,6 @@ private struct iOSPlayer: View {
             pendingSeekTarget = nil
             isScrubbing = false
             hasSource = true
-            scrubPreview = nil
-            scrubPreviewGen.reset()
             setUp()
             withAnimation(.easeInOut(duration: 0.2)) { controlsVisible = true }
         }
@@ -279,25 +276,6 @@ private struct iOSPlayer: View {
         return UIImage(cgImage: cg)
     }
 
-    /// シークバーのドラッグ位置のフレームをプレビュー用に生成する。
-    /// 専用ジェネレータを再利用し、低解像度・大きめ tolerance で高速化。最新要求のみ反映する。
-    private func requestScrubPreview(at seconds: Double) {
-        // サンプリングを間引く: 前回生成した位置から一定以上動いた時だけ生成する。細かい移動は
-        // 最寄キーフレームが同じで無駄になり、リクエストが多いと中断ばかりで完走しないため。
-        let minStep = max(duration / 60, 2)
-        guard abs(seconds - lastScrubPreviewSeconds) >= minStep else { return }
-        lastScrubPreviewSeconds = seconds
-        // 単一の generator を使い回し、新しい要求で前の生成を中断することで、ストリーミングでも
-        // NAS 接続を 1 本に抑える（位置ごとに AVURLAsset を作ると接続が枯渇する）。
-        guard let url = DownloadManager.shared.preferredURL(for: item) else { return }
-        scrubPreviewGen.prepare(url: url)
-        scrubPreviewTask?.cancel()
-        scrubPreviewTask = Task {
-            guard let cg = await scrubPreviewGen.image(at: seconds), !Task.isCancelled else { return }
-            scrubPreview = UIImage(cgImage: cg)
-        }
-    }
-
     /// ブックマーク一覧モード：上に一覧、画面下に動画（小窓）。
     private var bookmarkSplitLayout: some View {
         VStack(spacing: 0) {
@@ -371,8 +349,11 @@ private struct iOSPlayer: View {
             CircularSeekBar(value: $currentTime, duration: duration,
                             bookmarks: BookmarksModel.shared.bookmarks(for: item)) { editing in
                 isScrubbing = editing
-                if !editing {
-                    seeker.seek(toSeconds: currentTime, tolerance: 0)   // 離した位置へシーク
+                if editing {
+                    beginScrub()
+                } else {
+                    seeker.seek(toSeconds: currentTime, tolerance: 0)
+                    endScrub()
                 }
             }
             Text(Self.timeString(duration, padHours: duration >= 3600)).font(.caption2.monospacedDigit()).foregroundStyle(.white)
@@ -587,17 +568,14 @@ private struct iOSPlayer: View {
             .font(.title3)
             .tint(.yellow)
             CircularSeekBar(value: $currentTime, duration: duration,
-                            bookmarks: BookmarksModel.shared.bookmarks(for: item),
-                            previewImage: scrubPreview,
-                            onScrub: { requestScrubPreview(at: $0) }) { editing in
+                            bookmarks: BookmarksModel.shared.bookmarks(for: item)) { editing in
                 isScrubbing = editing
                 if editing {
-                    hideTask?.cancel()   // ドラッグ中は再生・音を変えず、サムとプレビューだけ動かす
-                    lastScrubPreviewSeconds = -.infinity   // ドラッグ開始時は最初の1枚を必ず出す
+                    hideTask?.cancel()
+                    beginScrub()
                 } else {
-                    seeker.seek(toSeconds: currentTime, tolerance: 0)   // 離した位置へシーク
-                    scrubPreview = nil
-                    scrubPreviewTask?.cancel()
+                    seeker.seek(toSeconds: currentTime, tolerance: 0)   // 最終位置へ正確にシーク
+                    endScrub()
                     scheduleAutoHide()
                 }
             }
@@ -877,10 +855,6 @@ private struct CircularSeekBar: View {
     @Binding var value: Double
     let duration: Double
     let bookmarks: [Double]
-    /// ドラッグ中に表示するプレビュー画像（その位置のフレーム）。
-    var previewImage: UIImage? = nil
-    /// ドラッグでシーク位置が変わるたびに呼ぶ（プレビュー生成要求）。
-    var onScrub: ((Double) -> Void)? = nil
     var onEditingChanged: (Bool) -> Void
 
     @State private var editing = false
@@ -901,20 +875,6 @@ private struct CircularSeekBar: View {
                 }
                 Circle().fill(.white).frame(width: thumb, height: thumb)
                     .offset(x: width * frac - thumb / 2)
-                // ドラッグ中、その位置のフレームをサムの上にプレビュー表示する。
-                if editing, let previewImage {
-                    let pw: CGFloat = 120, ph: CGFloat = 68
-                    Image(uiImage: previewImage)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: pw, height: ph)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.8), lineWidth: 1))
-                        .shadow(radius: 4)
-                        // サム中心の上に出す。画面端では左右にはみ出さないようクランプ。
-                        .offset(x: min(max(width * frac - pw / 2, 0), width - pw), y: -ph / 2 - 26)
-                        .allowsHitTesting(false)
-                }
             }
             .frame(maxHeight: .infinity, alignment: .center)
             .contentShape(Rectangle())
@@ -924,7 +884,6 @@ private struct CircularSeekBar: View {
                         if !editing { editing = true; onEditingChanged(true) }
                         let x = min(max(g.location.x, 0), width)
                         value = Double(x / width) * total
-                        onScrub?(value)
                     }
                     .onEnded { _ in
                         editing = false
@@ -933,54 +892,6 @@ private struct CircularSeekBar: View {
             )
         }
         .frame(height: 24)
-    }
-}
-
-/// シークプレビュー用の単一画像生成器。
-/// ドラッグ中に位置ごとへ新しい `AVURLAsset` を作ると NAS への接続を枯渇させ、別動画が
-/// 再生できなくなる。1 本の generator を URL 単位で使い回し、新しい要求が来たら前の生成を
-/// 中断することで、ストリーミングでも接続を 1 本に抑えてプレビューを出す。
-final class ScrubPreviewGenerator: @unchecked Sendable {
-    private let lock = NSLock()
-    private var generator: AVAssetImageGenerator?
-    private var sourceURL: URL?
-
-    /// 対象 URL を設定（変わったときだけ generator を作り直す）。
-    func prepare(url: URL) {
-        lock.lock(); defer { lock.unlock() }
-        guard sourceURL != url else { return }
-        generator?.cancelAllCGImageGeneration()
-        let gen = AVAssetImageGenerator(asset: AVURLAsset(url: url))
-        gen.appliesPreferredTrackTransform = true
-        // プレビューは画質より速度優先。小さいサイズ＋最寄キーフレームのみ（tolerance 無限大）で
-        // フレーム精度のデコードを省き、最速で生成する（位置は数秒スナップする）。
-        gen.maximumSize = CGSize(width: 160, height: 160)
-        gen.requestedTimeToleranceBefore = .positiveInfinity
-        gen.requestedTimeToleranceAfter = .positiveInfinity
-        generator = gen
-        sourceURL = url
-    }
-
-    /// 現在の generator をロック下で取り出す（同期）。
-    private func currentGenerator() -> AVAssetImageGenerator? {
-        lock.lock(); defer { lock.unlock() }
-        return generator
-    }
-
-    /// 指定秒のフレームを生成する。直前の生成は中断する。
-    func image(at seconds: Double) async -> CGImage? {
-        guard let gen = currentGenerator() else { return nil }
-        gen.cancelAllCGImageGeneration()
-        let time = CMTime(seconds: max(seconds, 0), preferredTimescale: 600)
-        return try? await gen.image(at: time).image
-    }
-
-    /// アイテム切り替え時に破棄する。
-    func reset() {
-        lock.lock(); defer { lock.unlock() }
-        generator?.cancelAllCGImageGeneration()
-        generator = nil
-        sourceURL = nil
     }
 }
 
