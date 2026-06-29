@@ -1,7 +1,11 @@
 import SwiftUI
+import DLNAKit
 
 /// アプリ設定。
 struct SettingsView: View {
+    /// 孤立検出のスキャン対象サーバ（ルートから渡す。空ならスキャン不可）。
+    var servers: [MediaServer] = []
+
     @AppStorage("seekUnitTop") private var seekUnitTop = 60
     @AppStorage("seekUnitBottom") private var seekUnitBottom = 30
     @AppStorage("thumbnailSize") private var thumbnailSize = 1   // 0=小, 1=中, 2=大
@@ -16,6 +20,10 @@ struct SettingsView: View {
     @State private var cacheBytes: Int64 = 0
     @State private var orphanCount = 0
     @State private var confirmDeleteDownloads = false
+    @State private var orphanScanner = OrphanScanner()
+    @State private var orphanScanning = false
+    @State private var orphanOutcome: OrphanScanner.Outcome?
+    @State private var confirmDeleteOrphans = false
     #if os(macOS)
     // 起動時チェック（ServerListView）と状態を共有する。
     @State private var updater = UpdateChecker.shared
@@ -88,6 +96,8 @@ struct SettingsView: View {
                     Text("孤立データ＝記録に無いファイルや、ファイルが失われた記録。キャッシュはサムネイルや HTTP の一時データです。")
                 }
 
+                orphanScanSection
+
                 #if os(macOS)
                 updateSection
                 #endif
@@ -110,12 +120,60 @@ struct SettingsView: View {
                 }
                 Button("キャンセル", role: .cancel) {}
             }
+            .confirmationDialog("孤立データを削除しますか？",
+                                isPresented: $confirmDeleteOrphans, titleVisibility: .visible) {
+                Button("削除", role: .destructive) {
+                    if let outcome = orphanOutcome, outcome.allReachable {
+                        orphanScanner.removeOrphans(outcome.report)
+                        orphanOutcome = nil
+                        refreshStorage()
+                    }
+                }
+                Button("キャンセル", role: .cancel) {}
+            } message: {
+                if let r = orphanOutcome?.report {
+                    Text("評価 \(r.ratings.count)・ブックマーク \(r.bookmarks.count)・タグ \(r.tags.count)・サムネ \(r.thumbnails.count)・ダウンロード \(r.downloads.count) を削除します。")
+                }
+            }
         }
         #if os(macOS)
         // sheet はコンテンツ駆動で幅が詰まり、LabeledContent のラベル（例「現在のバージョン」）
         // が見切れる。十分な最小サイズを与える。
         .frame(minWidth: 460, idealWidth: 480, minHeight: 560)
         #endif
+    }
+
+    /// サーバ再スキャンによる孤立データ検出セクション。
+    @ViewBuilder
+    private var orphanScanSection: some View {
+        Section {
+            if orphanScanning {
+                HStack { ProgressView().controlSize(.small); Text("サーバを再スキャン中…") }
+            } else if let outcome = orphanOutcome {
+                if !outcome.allReachable {
+                    Label("一部のサーバに到達できないため削除できません", systemImage: "exclamationmark.triangle")
+                        .font(.callout).foregroundStyle(.orange)
+                }
+                LabeledContent("サーバに無いデータ", value: "\(outcome.report.total) 件")
+                if outcome.report.total > 0 && outcome.allReachable {
+                    Button("孤立データを削除", role: .destructive) { confirmDeleteOrphans = true }
+                }
+            }
+            Button("サーバを再スキャンして検出") { Task { await scanOrphans() } }
+                .disabled(orphanScanning || servers.isEmpty)
+        } header: {
+            Text("孤立データ（サーバ照合）")
+        } footer: {
+            Text(servers.isEmpty
+                 ? "サーバ一覧の画面から設定を開くと実行できます。登録サーバを再スキャンし、どのサーバにも存在しない動画のデータを検出します。"
+                 : "登録サーバを再スキャンし、どのサーバにも存在しない動画の評価・ブックマーク・タグ・サムネ上書き・ダウンロードを孤立として検出します。全サーバに到達できた場合のみ削除できます。")
+        }
+    }
+
+    private func scanOrphans() async {
+        orphanScanning = true
+        defer { orphanScanning = false }
+        orphanOutcome = await orphanScanner.scan(servers: servers)
     }
 
     private func refreshStorage() {

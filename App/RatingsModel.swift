@@ -7,6 +7,7 @@ import DLNAKit
 @MainActor
 @Observable
 final class RatingsModel {
+    static let shared = RatingsModel()
     private var cache: [String: Rating]
     private let store: RatingStore
 

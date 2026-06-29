@@ -169,6 +169,27 @@ final class DownloadManager {
         Self.saveIndex(records)
     }
 
+    /// ダウンロード記録の全 persistentKey（サーバ再スキャンによる孤立検出用）。
+    func downloadKeys() -> Set<String> {
+        Set(records.values.map { $0.item.persistentKey })
+    }
+
+    /// 指定した persistentKey のダウンロード記録と実ファイルを削除する（孤立データ削除用）。
+    /// - Returns: 削除した記録数。
+    @discardableResult
+    func removeDownloads(persistentKeys keys: Set<String>) -> Int {
+        let dir = Self.downloadsDir()
+        var removed = 0
+        for (id, record) in records where keys.contains(record.item.persistentKey) {
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent(record.filename))
+            records[id] = nil
+            states[id] = nil
+            removed += 1
+        }
+        if removed > 0 { Self.saveIndex(records) }
+        return removed
+    }
+
     /// 孤立データ件数: 記録に無いファイル ＋ ファイルが存在しない記録。
     func orphanCount() -> Int {
         let dir = Self.downloadsDir()
