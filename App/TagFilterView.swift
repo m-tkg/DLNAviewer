@@ -9,6 +9,7 @@ struct TagFilterView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var filter = ""
+    @State private var expanded: Set<String> = []
 
     private let tags = TagsModel.shared
 
@@ -28,7 +29,12 @@ struct TagFilterView: View {
                     List {
                         ForEach(TagGrouping.grouped(filteredTags)) { group in
                             if let key = group.key {
-                                Section(key) { tagRows(group.tags) }
+                                // 見出しをタップで展開/折りたたみ。検索中は自動展開。
+                                DisclosureGroup(isExpanded: expansionBinding(for: key)) {
+                                    tagRows(group.tags)
+                                } label: {
+                                    Label("\(key)（\(group.tags.count)）", systemImage: "tag.square")
+                                }
                             } else {
                                 Section { tagRows(group.tags) }
                             }
@@ -47,6 +53,14 @@ struct TagFilterView: View {
                 }
             }
         }
+    }
+
+    /// グループの展開状態。検索中（filter 非空）は常に展開して結果を隠さない。
+    private func expansionBinding(for key: String) -> Binding<Bool> {
+        Binding(
+            get: { !filter.isEmpty || expanded.contains(key) },
+            set: { if $0 { expanded.insert(key) } else { expanded.remove(key) } }
+        )
     }
 
     /// グループ内のタグ行（見出し以降のラベルを表示。タップで検索）。
