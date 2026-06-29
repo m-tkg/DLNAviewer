@@ -152,7 +152,8 @@ private struct iOSPlayer: View {
     /// 横ドラッグ何ポイントで 1 単位進めるか。
     private let pointsPerUnit: CGFloat = 30
 
-    private let ticker = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
+    // @State で 1 度だけ生成し、View 値の再生成でタイマーを作り直さない。
+    @State private var ticker = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
     var body: some View {
         Group {
@@ -972,7 +973,12 @@ final class PlaybackModel {
 
     /// PiP 中でなければ一時停止する（一覧へ戻る時）。
     func pauseUnlessPiP() {
-        if !pip.isActive { player.pause() }
+        guard !pip.isActive else { return }
+        // PiP でないなら、抱えている AVPlayerItem（最大60秒バッファ＋ネットワークストリーム）を
+        // 解放する。次に再生するとき load() で読み込み直す。
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        loadedKey = nil
     }
 
     /// PiP 起動中なら停止する。

@@ -183,6 +183,7 @@ struct BrowseView: View {
             }
         }
         .task { await load() }
+        .onDisappear { chapterTask?.cancel() }
     }
 
     /// 検索フォーム＋右隣のタグ追加ボタン（上部固定）。
