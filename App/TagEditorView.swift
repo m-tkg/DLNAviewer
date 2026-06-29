@@ -75,20 +75,19 @@ struct TagEditorView: View {
                             Label("「\(trimmed)」を追加", systemImage: "plus.circle")
                         }
                     }
-                    // 自動補完候補
-                    ForEach(suggestions, id: \.self) { tag in
-                        Button {
-                            tags.add(tag, for: item)
-                            input = ""
-                        } label: {
-                            Label(tag, systemImage: "tag")
-                        }
-                        .contextMenu { tagManageMenu(tag) }
-                    }
                 } header: {
                     Text("タグを追加")
                 } footer: {
-                    Text("入力すると既存のタグが候補に表示されます。タグを長押しで名前変更・削除できます。")
+                    Text("入力すると既存のタグが候補に表示されます。「aaa:bbb」の形式は aaa ごとにまとめて表示します。タグを長押しで名前変更・削除できます。")
+                }
+
+                // 自動補完候補（aaa:bbb は aaa ごとにグループ表示）。
+                ForEach(TagGrouping.grouped(suggestions)) { group in
+                    if let key = group.key {
+                        Section(key) { suggestionRows(group.tags) }
+                    } else {
+                        Section { suggestionRows(group.tags) }
+                    }
                 }
 
                 if TagSuggester.isAvailable {
@@ -219,6 +218,20 @@ struct TagEditorView: View {
                     }
                 }
             }
+        }
+    }
+
+    /// グループ内の補完候補行（ラベルを表示。タップでこの動画に付与）。
+    @ViewBuilder
+    private func suggestionRows(_ groupTags: [String]) -> some View {
+        ForEach(groupTags, id: \.self) { tag in
+            Button {
+                tags.add(tag, for: item)
+                input = ""
+            } label: {
+                Label(TagGrouping.label(for: tag), systemImage: "tag")
+            }
+            .contextMenu { tagManageMenu(tag) }
         }
     }
 

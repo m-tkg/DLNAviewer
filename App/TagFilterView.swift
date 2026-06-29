@@ -25,16 +25,12 @@ struct TagFilterView: View {
                         systemImage: "tag"
                     )
                 } else {
-                    List(filteredTags, id: \.self) { tag in
-                        Button {
-                            onSelect(tag)
-                            dismiss()
-                        } label: {
-                            HStack {
-                                Label(tag, systemImage: "tag")
-                                Spacer()
-                                Text("\(tags.usageCount(tag)) 本")
-                                    .foregroundStyle(.secondary)
+                    List {
+                        ForEach(TagGrouping.grouped(filteredTags)) { group in
+                            if let key = group.key {
+                                Section(key) { tagRows(group.tags) }
+                            } else {
+                                Section { tagRows(group.tags) }
                             }
                         }
                     }
@@ -48,6 +44,24 @@ struct TagFilterView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完了") { dismiss() }
+                }
+            }
+        }
+    }
+
+    /// グループ内のタグ行（見出し以降のラベルを表示。タップで検索）。
+    @ViewBuilder
+    private func tagRows(_ groupTags: [String]) -> some View {
+        ForEach(groupTags, id: \.self) { tag in
+            Button {
+                onSelect(tag)
+                dismiss()
+            } label: {
+                HStack {
+                    Label(TagGrouping.label(for: tag), systemImage: "tag")
+                    Spacer()
+                    Text("\(tags.usageCount(tag)) 本")
+                        .foregroundStyle(.secondary)
                 }
             }
         }
