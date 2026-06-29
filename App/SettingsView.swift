@@ -150,6 +150,13 @@ struct SettingsView: View {
                         .font(.callout).foregroundStyle(.orange)
                 }
                 LabeledContent("サーバに無いデータ", value: "\(outcome.report.total) 件")
+                // 種類別の内訳（0 件の種類は省略）。
+                let r = outcome.report
+                if r.ratings.count > 0 { LabeledContent("　評価", value: "\(r.ratings.count) 件").foregroundStyle(.secondary) }
+                if r.bookmarks.count > 0 { LabeledContent("　ブックマーク", value: "\(r.bookmarks.count) 件").foregroundStyle(.secondary) }
+                if r.tags.count > 0 { LabeledContent("　タグ", value: "\(r.tags.count) 件").foregroundStyle(.secondary) }
+                if r.thumbnails.count > 0 { LabeledContent("　サムネ上書き", value: "\(r.thumbnails.count) 件").foregroundStyle(.secondary) }
+                if r.downloads.count > 0 { LabeledContent("　ダウンロード", value: "\(r.downloads.count) 件").foregroundStyle(.secondary) }
                 if outcome.report.total > 0 && outcome.allReachable {
                     Button("孤立データを削除", role: .destructive) { confirmDeleteOrphans = true }
                 }
