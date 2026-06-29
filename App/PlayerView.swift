@@ -570,23 +570,27 @@ private struct iOSPlayer: View {
     }
 
     private var centerControls: some View {
-        HStack(spacing: 28) {
+        HStack(spacing: 20) {
             Button { goPrev() } label: {
                 Image(systemName: "backward.end.fill").font(.system(size: 28))
+                    .frame(width: 56, height: 56).contentShape(Rectangle())
             }
             .disabled(index <= 0)
             Button { skip(-Double(skipSeconds)) } label: {
                 Image(systemName: "gobackward.\(skipSeconds)")
+                    .frame(width: 56, height: 56).contentShape(Rectangle())
             }
             Button { togglePlay() } label: {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                    .frame(width: 56)
+                    .frame(width: 64, height: 56).contentShape(Rectangle())
             }
             Button { skip(Double(skipSeconds)) } label: {
                 Image(systemName: "goforward.\(skipSeconds)")
+                    .frame(width: 56, height: 56).contentShape(Rectangle())
             }
             Button { goNext() } label: {
                 Image(systemName: "forward.end.fill").font(.system(size: 28))
+                    .frame(width: 56, height: 56).contentShape(Rectangle())
             }
             .disabled(index >= items.count - 1)
         }
