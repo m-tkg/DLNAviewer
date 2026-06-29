@@ -211,7 +211,11 @@ private struct iOSPlayer: View {
                 // コントロール表示中はこの上にバーを重ねる。バー領域はタップを吸収し、
                 // 中央の空き領域だけ下の tapLayer に通す。
                 if isWaiting {
-                    // 読み込み中（再生待ち）はコントロールを出さず、くるくるを表示。
+                    // 読み込み中はヘッダ（戻る・タイトル）だけ出し、中央にくるくるを表示。
+                    VStack(spacing: 0) {
+                        headerBar
+                        Spacer(minLength: 0)
+                    }
                     ProgressView()
                         .controlSize(.large)
                         .tint(.white)
@@ -404,20 +408,26 @@ private struct iOSPlayer: View {
         }
     }
 
+    /// ヘッダ（戻る・タイトル・タグ）。読み込み中とコントロール表示中の両方で出す。
+    private var headerBar: some View {
+        VStack(spacing: 0) {
+            topBar
+            tagBar
+        }
+        .background {
+            LinearGradient(colors: [.black.opacity(0.6), .clear],
+                           startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea(edges: .top)
+        }
+        .contentShape(Rectangle())
+        .foregroundStyle(.white)
+    }
+
     private var controlsOverlay: some View {
         // バー領域（上下）はタップを吸収してコントロールを維持。中央の空き領域だけ
         // 下の tapLayer に通し、ダブルタップスキップ／シングルタップで非表示を効かせる。
         VStack(spacing: 0) {
-            VStack(spacing: 0) {
-                topBar
-                tagBar
-            }
-            .background {
-                LinearGradient(colors: [.black.opacity(0.6), .clear],
-                               startPoint: .top, endPoint: .bottom)
-                    .ignoresSafeArea(edges: .top)
-            }
-            .contentShape(Rectangle())
+            headerBar
 
             Spacer(minLength: 0)
             centerControls
