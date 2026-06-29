@@ -703,9 +703,22 @@ struct BrowseView: View {
         let oid: String
         if let resolved = effectiveObjectID {
             oid = resolved
-        } else if resolveByPath, !path.isEmpty {
+        } else if resolveByPath {
             isLoading = true
-            oid = (await resolvePath(controlURL: controlURL)) ?? objectID
+            let notFound = "お気に入りのフォルダが見つかりません。サーバー側で削除・変更された可能性があります（再登録すると追従します）。"
+            if !path.isEmpty {
+                // 再登録済み（パスあり）: 名前パスで辿る。辿れなければ誤フォルダを開かずエラー。
+                guard let resolved = await resolvePath(controlURL: controlURL) else {
+                    error = notFound; isLoading = false; return
+                }
+                oid = resolved
+            } else {
+                // 旧データ（パスなし）: objectID で開くが、フォルダ名が保存名と一致するか確認する。
+                guard let name = await folderTitle(controlURL: controlURL, objectID: objectID), name == title else {
+                    error = notFound; isLoading = false; return
+                }
+                oid = objectID
+            }
             effectiveObjectID = oid
         } else {
             oid = objectID
@@ -749,6 +762,18 @@ struct BrowseView: View {
             current = match.id
         }
         return current
+    }
+
+    /// objectID 自身の BrowseMetadata からフォルダ名を取得する（旧お気に入りの照合用）。
+    private func folderTitle(controlURL: URL, objectID: String) async -> String? {
+        guard let result = try? await client.browse(
+            controlURL: controlURL, objectID: objectID, browseFlag: .metadata
+        ) else { return nil }
+        switch result.objects.first {
+        case .container(let c): return c.title
+        case .item(let i): return i.title
+        case nil: return nil
+        }
     }
 }
 
