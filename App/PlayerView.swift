@@ -147,6 +147,7 @@ private struct iOSPlayer: View {
     @State private var scrubPreview: UIImage?
     @State private var scrubPreviewTask: Task<Void, Never>?
     @State private var scrubPreviewGen = ScrubPreviewGenerator()
+    @State private var lastScrubPreviewSeconds = -Double.infinity
 
     /// 縦スワイプで回転とみなす最小移動量。
     private let rotateThreshold: CGFloat = 60
@@ -281,6 +282,11 @@ private struct iOSPlayer: View {
     /// シークバーのドラッグ位置のフレームをプレビュー用に生成する。
     /// 専用ジェネレータを再利用し、低解像度・大きめ tolerance で高速化。最新要求のみ反映する。
     private func requestScrubPreview(at seconds: Double) {
+        // サンプリングを間引く: 前回生成した位置から一定以上動いた時だけ生成する。細かい移動は
+        // 最寄キーフレームが同じで無駄になり、リクエストが多いと中断ばかりで完走しないため。
+        let minStep = max(duration / 60, 2)
+        guard abs(seconds - lastScrubPreviewSeconds) >= minStep else { return }
+        lastScrubPreviewSeconds = seconds
         // 単一の generator を使い回し、新しい要求で前の生成を中断することで、ストリーミングでも
         // NAS 接続を 1 本に抑える（位置ごとに AVURLAsset を作ると接続が枯渇する）。
         guard let url = DownloadManager.shared.preferredURL(for: item) else { return }
@@ -587,6 +593,7 @@ private struct iOSPlayer: View {
                 isScrubbing = editing
                 if editing {
                     hideTask?.cancel()   // ドラッグ中は再生・音を変えず、サムとプレビューだけ動かす
+                    lastScrubPreviewSeconds = -.infinity   // ドラッグ開始時は最初の1枚を必ず出す
                 } else {
                     seeker.seek(toSeconds: currentTime, tolerance: 0)   // 離した位置へシーク
                     scrubPreview = nil
