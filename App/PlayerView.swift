@@ -266,7 +266,7 @@ private struct iOSPlayer: View {
                 VStack {
                     HStack(spacing: 6) {
                         Image(systemName: "forward.fill")
-                        Text("2x").font(.headline)
+                        Text("4x").font(.headline)
                     }
                     .foregroundStyle(.white)
                     .padding(.horizontal, 16).padding(.vertical, 8)
@@ -861,7 +861,7 @@ private struct iOSPlayer: View {
     private func engageFastForward() {
         guard !fastForwarding, hasSource else { return }
         fastForwarding = true
-        player.rate = 2.0
+        player.rate = 4.0
     }
 
     private func disengageFastForward() {
