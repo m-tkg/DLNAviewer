@@ -120,6 +120,8 @@ private struct iOSPlayer: View {
     @State private var hasSource = true
     @State private var controlsVisible = true
     @State private var isPlaying = true
+    // 再生待ち（バッファ読み込み中）。true の間はコントロールを隠してスピナーを出す。
+    @State private var isWaiting = true
     @State private var currentTime: Double = 0
     @State private var duration: Double = 0
     @State private var isScrubbing = false
@@ -173,6 +175,7 @@ private struct iOSPlayer: View {
             pendingSeekTarget = nil
             isScrubbing = false
             hasSource = true
+            isWaiting = true
             setUp()
             withAnimation(.easeInOut(duration: 0.2)) { controlsVisible = true }
         }
@@ -207,7 +210,12 @@ private struct iOSPlayer: View {
                     .contextMenu { playerMenu }
                 // コントロール表示中はこの上にバーを重ねる。バー領域はタップを吸収し、
                 // 中央の空き領域だけ下の tapLayer に通す。
-                if controlsVisible {
+                if isWaiting {
+                    // 読み込み中（再生待ち）はコントロールを出さず、くるくるを表示。
+                    ProgressView()
+                        .controlSize(.large)
+                        .tint(.white)
+                } else if controlsVisible {
                     controlsOverlay.transition(.opacity)
                 }
             } else {
@@ -658,6 +666,8 @@ private struct iOSPlayer: View {
             duration = d
         }
         isPlaying = player.timeControlStatus == .playing
+        // 再生待ち（バッファ読み込み中）はコントロールを隠してスピナーを出す。
+        isWaiting = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
     }
 
     private func togglePlay() {
