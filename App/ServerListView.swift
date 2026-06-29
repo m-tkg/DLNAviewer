@@ -72,7 +72,7 @@ struct ServerListView: View {
                 }
             }
             .navigationDestination(for: BrowseRoute.self) { route in
-                BrowseView(server: route.server, objectID: route.objectID, title: route.title)
+                BrowseView(server: route.server, objectID: route.objectID, title: route.title, path: route.path, resolveByPath: route.resolveByPath)
             }
             .navigationDestination(for: PlayerRoute.self) { route in
                 PlayerView(items: route.items, startIndex: route.index)
@@ -179,7 +179,7 @@ struct ServerListView: View {
             if !favorites.folders.isEmpty {
                 Section("お気に入り") {
                     ForEach(favorites.folders) { folder in
-                        NavigationLink(value: BrowseRoute(server: folder.server, objectID: folder.objectID, title: folder.title)) {
+                        NavigationLink(value: BrowseRoute(server: folder.server, objectID: folder.objectID, title: folder.title, path: folder.path, resolveByPath: true)) {
                             Label {
                                 VStack(alignment: .leading) {
                                     Text(folder.title)

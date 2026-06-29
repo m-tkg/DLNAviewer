@@ -13,6 +13,10 @@ struct BrowseView: View {
     var server: MediaServer? = nil
     var objectID: String = "0"
     let title: String
+    /// ルート直下からこのフォルダまでのフォルダ名（お気に入りのパス再解決用）。
+    var path: [String] = []
+    /// true なら開く時に path で objectID を再解決する（お気に入りから開く場合）。
+    var resolveByPath = false
     /// true ならサーバーではなくダウンロード済みのローカル一覧を表示する。
     var downloadsMode = false
 
@@ -24,6 +28,8 @@ struct BrowseView: View {
     @AppStorage("filterNone") private var filterNone = true
 
     @State private var objects: [DIDLObject] = []
+    /// お気に入りからパス再解決した実際の objectID（未解決なら nil で objectID を使う）。
+    @State private var effectiveObjectID: String?
     @State private var isLoading = true
     @State private var error: String?
     @State private var searchText = ""
@@ -393,7 +399,7 @@ struct BrowseView: View {
             switch object {
             case .container(let container):
                 if let server {
-                    NavigationLink(value: BrowseRoute(server: server, objectID: container.id, title: container.title)) {
+                    NavigationLink(value: BrowseRoute(server: server, objectID: container.id, title: container.title, path: path + [container.title])) {
                         HStack {
                             Label(container.title, systemImage: "folder")
                             if isFavorite(container) {
@@ -436,7 +442,7 @@ struct BrowseView: View {
                     switch object {
                     case .container(let container):
                         if let server {
-                            NavigationLink(value: BrowseRoute(server: server, objectID: container.id, title: container.title)) {
+                            NavigationLink(value: BrowseRoute(server: server, objectID: container.id, title: container.title, path: path + [container.title])) {
                                 folderTile(container)
                             }
                             .buttonStyle(.plain)
@@ -551,7 +557,7 @@ struct BrowseView: View {
     private func folderMenu(_ container: MediaContainer) -> some View {
         if let server {
             Button {
-                favorites.toggle(server: server, objectID: container.id, title: container.title)
+                favorites.toggle(server: server, objectID: container.id, title: container.title, path: path + [container.title])
             } label: {
                 if isFavorite(container) {
                     Label("お気に入り解除", systemImage: "star.slash")
@@ -687,8 +693,25 @@ struct BrowseView: View {
             return
         }
         guard let server else { isLoading = false; return }
+        guard let controlURL = server.contentDirectoryControlURL else {
+            error = "ContentDirectory が見つかりません"
+            isLoading = false
+            return
+        }
+        // お気に入りから開いた場合、保存パスで objectID を再解決する（サーバー入れ替え対応）。
+        // 一度解決したら effectiveObjectID にキャッシュし、以降はそれを使う。
+        let oid: String
+        if let resolved = effectiveObjectID {
+            oid = resolved
+        } else if resolveByPath, !path.isEmpty {
+            isLoading = true
+            oid = (await resolvePath(controlURL: controlURL)) ?? objectID
+            effectiveObjectID = oid
+        } else {
+            oid = objectID
+        }
         // キャッシュ利用（再読み込みでない場合）。
-        if !force, let cached = BrowseCache.shared.objects(server: server, objectID: objectID) {
+        if !force, let cached = BrowseCache.shared.objects(server: server, objectID: oid) {
             objects = cached
             isLoading = false
             error = nil
@@ -696,15 +719,10 @@ struct BrowseView: View {
         }
         isLoading = true
         error = nil
-        guard let controlURL = server.contentDirectoryControlURL else {
-            error = "ContentDirectory が見つかりません"
-            isLoading = false
-            return
-        }
         do {
-            let items = try await client.browseAll(controlURL: controlURL, objectID: objectID)
+            let items = try await client.browseAll(controlURL: controlURL, objectID: oid)
             objects = items
-            BrowseCache.shared.store(items, server: server, objectID: objectID)
+            BrowseCache.shared.store(items, server: server, objectID: oid)
         } catch is CancellationError {
             // pull-to-refresh などで前の読み込みが中断された正常なキャンセル。エラー表示しない。
         } catch let urlError as URLError where urlError.code == .cancelled {
@@ -713,6 +731,24 @@ struct BrowseView: View {
             self.error = LibraryModel.message(for: error)
         }
         isLoading = false
+    }
+
+    /// 保存パスをルート("0")から辿って現在の objectID を再解決する。
+    /// 各階層でフォルダ名が一致するコンテナを辿る。見つからなければ nil。
+    private func resolvePath(controlURL: URL) async -> String? {
+        var current = "0"
+        for name in path {
+            guard let objects = try? await client.browseAll(controlURL: controlURL, objectID: current) else {
+                return nil
+            }
+            let containers = objects.compactMap { obj -> MediaContainer? in
+                if case .container(let c) = obj { return c }
+                return nil
+            }
+            guard let match = containers.first(where: { $0.title == name }) else { return nil }
+            current = match.id
+        }
+        return current
     }
 }
 

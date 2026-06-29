@@ -6,6 +6,10 @@ struct BrowseRoute: Hashable {
     var server: MediaServer
     var objectID: String
     var title: String
+    /// ルート直下からこのフォルダまでのフォルダ名の連なり（お気に入りのパス再解決用）。
+    var path: [String] = []
+    /// true なら開く時に path で objectID を再解決する（お気に入りから開く場合）。
+    var resolveByPath = false
 }
 
 /// 再生画面へ遷移するためのナビゲーション値。
