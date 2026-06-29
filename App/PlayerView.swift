@@ -143,6 +143,9 @@ private struct iOSPlayer: View {
     @State private var dragUnit: Double = 60
     @State private var pendingSeekTarget: Double?
     @State private var seeker = SmoothSeeker()
+    // シークバーのドラッグ中に表示するプレビュー（その位置のフレーム）。
+    @State private var scrubPreview: UIImage?
+    @State private var scrubPreviewTask: Task<Void, Never>?
 
     /// 縦スワイプで回転とみなす最小移動量。
     private let rotateThreshold: CGFloat = 60
@@ -162,10 +165,6 @@ private struct iOSPlayer: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .onReceive(ticker) { _ in tick() }
-        // シークバー（スライダー）ドラッグ中も動画を追従させる。
-        .onChange(of: currentTime) { _, newValue in
-            if isScrubbing { seeker.seek(toSeconds: newValue, tolerance: 0.5) }
-        }
         // 前/次の動画へ移動したら読み込み直す。
         .onChange(of: index) { _, _ in
             currentTime = 0
@@ -173,6 +172,7 @@ private struct iOSPlayer: View {
             pendingSeekTarget = nil
             isScrubbing = false
             hasSource = true
+            scrubPreview = nil
             setUp()
             withAnimation(.easeInOut(duration: 0.2)) { controlsVisible = true }
         }
@@ -276,6 +276,19 @@ private struct iOSPlayer: View {
         return UIImage(cgImage: cg)
     }
 
+    /// シークバーのドラッグ位置のフレームをプレビュー用に生成する。
+    /// 専用ジェネレータを再利用し、低解像度・大きめ tolerance で高速化。最新要求のみ反映する。
+    private func requestScrubPreview(at seconds: Double) {
+        guard let url = DownloadManager.shared.preferredURL(for: item) else { return }
+        scrubPreviewTask?.cancel()
+        scrubPreviewTask = Task {
+            // プレビューなので低解像度・大きめ tolerance で高速生成。最新要求のみ反映。
+            guard let cg = await ThumbnailCache.shared.generate(from: url, at: seconds, tolerance: 1, maxSize: 240),
+                  !Task.isCancelled else { return }
+            scrubPreview = UIImage(cgImage: cg)
+        }
+    }
+
     /// ブックマーク一覧モード：上に一覧、画面下に動画（小窓）。
     private var bookmarkSplitLayout: some View {
         VStack(spacing: 0) {
@@ -349,11 +362,8 @@ private struct iOSPlayer: View {
             CircularSeekBar(value: $currentTime, duration: duration,
                             bookmarks: BookmarksModel.shared.bookmarks(for: item)) { editing in
                 isScrubbing = editing
-                if editing {
-                    beginScrub()
-                } else {
-                    seeker.seek(toSeconds: currentTime, tolerance: 0)
-                    endScrub()
+                if !editing {
+                    seeker.seek(toSeconds: currentTime, tolerance: 0)   // 離した位置へシーク
                 }
             }
             Text(Self.timeString(duration)).font(.caption2.monospacedDigit()).foregroundStyle(.white)
@@ -568,14 +578,16 @@ private struct iOSPlayer: View {
             .font(.title3)
             .tint(.yellow)
             CircularSeekBar(value: $currentTime, duration: duration,
-                            bookmarks: BookmarksModel.shared.bookmarks(for: item)) { editing in
+                            bookmarks: BookmarksModel.shared.bookmarks(for: item),
+                            previewImage: scrubPreview,
+                            onScrub: { requestScrubPreview(at: $0) }) { editing in
                 isScrubbing = editing
                 if editing {
-                    hideTask?.cancel()
-                    beginScrub()
+                    hideTask?.cancel()   // ドラッグ中は再生・音を変えず、サムとプレビューだけ動かす
                 } else {
-                    seeker.seek(toSeconds: currentTime, tolerance: 0)   // 最終位置へ正確にシーク
-                    endScrub()
+                    seeker.seek(toSeconds: currentTime, tolerance: 0)   // 離した位置へシーク
+                    scrubPreview = nil
+                    scrubPreviewTask?.cancel()
                     scheduleAutoHide()
                 }
             }
@@ -853,6 +865,10 @@ private struct CircularSeekBar: View {
     @Binding var value: Double
     let duration: Double
     let bookmarks: [Double]
+    /// ドラッグ中に表示するプレビュー画像（その位置のフレーム）。
+    var previewImage: UIImage? = nil
+    /// ドラッグでシーク位置が変わるたびに呼ぶ（プレビュー生成要求）。
+    var onScrub: ((Double) -> Void)? = nil
     var onEditingChanged: (Bool) -> Void
 
     @State private var editing = false
@@ -873,6 +889,20 @@ private struct CircularSeekBar: View {
                 }
                 Circle().fill(.white).frame(width: thumb, height: thumb)
                     .offset(x: width * frac - thumb / 2)
+                // ドラッグ中、その位置のフレームをサムの上にプレビュー表示する。
+                if editing, let previewImage {
+                    let pw: CGFloat = 120, ph: CGFloat = 68
+                    Image(uiImage: previewImage)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: pw, height: ph)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.8), lineWidth: 1))
+                        .shadow(radius: 4)
+                        // サム中心の上に出す。画面端では左右にはみ出さないようクランプ。
+                        .offset(x: min(max(width * frac - pw / 2, 0), width - pw), y: -ph / 2 - 26)
+                        .allowsHitTesting(false)
+                }
             }
             .frame(maxHeight: .infinity, alignment: .center)
             .contentShape(Rectangle())
@@ -882,6 +912,7 @@ private struct CircularSeekBar: View {
                         if !editing { editing = true; onEditingChanged(true) }
                         let x = min(max(g.location.x, 0), width)
                         value = Double(x / width) * total
+                        onScrub?(value)
                     }
                     .onEnded { _ in
                         editing = false
