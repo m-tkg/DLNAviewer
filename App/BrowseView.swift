@@ -548,7 +548,7 @@ struct BrowseView: View {
     /// お気に入り登録済みか（`favorites.folders` を参照するので登録状態の変化で再描画される）。
     private func isFavorite(_ container: MediaContainer) -> Bool {
         guard let server else { return false }
-        let id = FavoriteFolder.makeID(serverID: server.id, objectID: container.id)
+        let id = FavoriteFolder.makeID(serverID: server.id, objectID: container.id, title: container.title)
         return favorites.folders.contains { $0.id == id }
     }
 

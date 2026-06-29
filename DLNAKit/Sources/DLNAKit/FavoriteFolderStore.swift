@@ -11,27 +11,30 @@ public struct FavoriteFolder: Codable, Hashable, Sendable, Identifiable {
     public var path: [String]
 
     public init(server: MediaServer, objectID: String, title: String, path: [String] = []) {
-        self.id = FavoriteFolder.makeID(serverID: server.id, objectID: objectID)
+        self.id = FavoriteFolder.makeID(serverID: server.id, objectID: objectID, title: title)
         self.server = server
         self.objectID = objectID
         self.title = title
         self.path = path
     }
 
-    /// サーバー ID とフォルダ ID から安定した一意キーを作る。
-    public static func makeID(serverID: String, objectID: String) -> String {
-        "\(serverID)\u{1}\(objectID)"
+    /// サーバー ID・フォルダ ID・フォルダ名から一意キーを作る。
+    /// title を含めることで、サーバー入れ替えで objectID が別フォルダに再利用されても
+    /// 名前が違えば別物として扱える（誤ってお気に入りマークが付くのを防ぐ）。
+    public static func makeID(serverID: String, objectID: String, title: String) -> String {
+        "\(serverID)\u{1}\(objectID)\u{1}\(title)"
     }
 
     private enum CodingKeys: String, CodingKey { case id, server, objectID, title, path }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(String.self, forKey: .id)
         server = try c.decode(MediaServer.self, forKey: .server)
         objectID = try c.decode(String.self, forKey: .objectID)
         title = try c.decode(String.self, forKey: .title)
         path = try c.decodeIfPresent([String].self, forKey: .path) ?? []   // 旧データ互換
+        // id は objectID+title から再計算する（旧データの objectID のみの id を移行）。
+        id = FavoriteFolder.makeID(serverID: server.id, objectID: objectID, title: title)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -66,7 +69,7 @@ public final class FavoriteFolderStore: @unchecked Sendable {
     public func add(server: MediaServer, objectID: String, title: String, path: [String] = []) -> FavoriteFolder {
         lock.lock(); defer { lock.unlock() }
         var list = load()
-        let id = FavoriteFolder.makeID(serverID: server.id, objectID: objectID)
+        let id = FavoriteFolder.makeID(serverID: server.id, objectID: objectID, title: title)
         if let existing = list.first(where: { $0.id == id }) {
             return existing
         }
@@ -85,9 +88,9 @@ public final class FavoriteFolderStore: @unchecked Sendable {
     }
 
     /// 指定サーバー・フォルダが登録済みか。
-    public func contains(serverID: String, objectID: String) -> Bool {
+    public func contains(serverID: String, objectID: String, title: String) -> Bool {
         lock.lock(); defer { lock.unlock() }
-        let id = FavoriteFolder.makeID(serverID: serverID, objectID: objectID)
+        let id = FavoriteFolder.makeID(serverID: serverID, objectID: objectID, title: title)
         return load().contains { $0.id == id }
     }
 
@@ -97,7 +100,7 @@ public final class FavoriteFolderStore: @unchecked Sendable {
     public func toggle(server: MediaServer, objectID: String, title: String, path: [String] = []) -> Bool {
         lock.lock(); defer { lock.unlock() }
         var list = load()
-        let id = FavoriteFolder.makeID(serverID: server.id, objectID: objectID)
+        let id = FavoriteFolder.makeID(serverID: server.id, objectID: objectID, title: title)
         if list.contains(where: { $0.id == id }) {
             list.removeAll { $0.id == id }
             save(list)
