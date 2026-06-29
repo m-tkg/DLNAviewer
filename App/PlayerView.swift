@@ -139,9 +139,6 @@ private struct iOSPlayer: View {
     @State private var hintTask: Task<Void, Never>?
     // ダブルタップ＋長押し中の 2 倍速再生
     @State private var fastForwarding = false
-    @GestureState private var pressHolding = false
-    /// 直近のタップ離し時刻（長押しが「ダブルタップ長押し」か素の長押しかの判定に使う）。
-    @State private var lastTapUp = Date.distantPast
     @State private var showingActionMenu = false
     // 現在シーンの解析・画像検索
     @State private var analysisImage: CapturedImage?
@@ -212,12 +209,19 @@ private struct iOSPlayer: View {
             if hasSource {
                 PlayerLayerView().ignoresSafeArea()
                 // タップ/スワイプ/長押しはこの層が一手に引き受ける（コントロールの下に常設）。
-                tapLayer
-                    .ignoresSafeArea()
-                    .gesture(seekDrag)
-                    .gesture(pressGesture)
-                    // ダブルタップ長押し判定のため、タップの離し時刻を記録する。
-                    .simultaneousGesture(TapGesture(count: 1).onEnded { lastTapUp = Date() })
+                // 中央のタッチ操作（タップ／ダブルタップ／ダブルタップ長押し2倍速／長押しメニュー／
+                // スワイプシーク）を UIKit の認識器でまとめて処理する。SwiftUI のジェスチャー合成では
+                // ダブルタップ長押しの判定が安定しないため。
+                GestureSurface(
+                    onSingleTap: { handleSingleTap() },
+                    onDoubleTap: { forward in handleDoubleTap(forward: forward) },
+                    onFastForwardStart: { engageFastForward() },
+                    onFastForwardEnd: { disengageFastForward() },
+                    onMenu: { showingActionMenu = true },
+                    onPanChanged: { translation, start, size in handlePanChanged(translation: translation, startLocation: start, viewSize: size) },
+                    onPanEnded: { translation in handlePanEnded(translation: translation) }
+                )
+                .ignoresSafeArea()
                 // コントロール表示中はこの上にバーを重ねる。バー領域はタップを吸収し、
                 // 中央の空き領域だけ下の tapLayer に通す。
                 if isWaiting {
@@ -284,9 +288,6 @@ private struct iOSPlayer: View {
             }
         }
         .contentShape(Rectangle())
-        .onChange(of: pressHolding) { _, holding in
-            if holding { beginHold() } else { endHold() }
-        }
         .confirmationDialog("操作", isPresented: $showingActionMenu, titleVisibility: .hidden) {
             actionMenuButtons
         } message: {
@@ -779,60 +780,75 @@ private struct iOSPlayer: View {
         }
     }
 
-    /// プレイヤー上のドラッグ。
+    /// プレイヤー上のドラッグ（GestureSurface のパンから呼ばれる）。
     /// - 横方向: シーク。上半分=60秒・下半分=30秒を単位に移動（コントロール表示中も可）。
     /// - 縦方向: 回転。縦状態で上スワイプ→横、横状態で下スワイプ→縦（YouTube ライク）。
-    private var seekDrag: some Gesture {
-        DragGesture(minimumDistance: 20, coordinateSpace: .local)
-            .onChanged { value in
-                guard hasSource, duration > 0 else { return }
-                // 横方向が主のドラッグだけシークプレビューを出す（コントロール表示中も可）。
-                guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                if dragStartTime == nil {
-                    dragStartTime = currentTime
-                    dragUnit = Double(value.startLocation.y < viewHeight / 2 ? seekUnitTop : seekUnitBottom)
-                    isScrubbing = true   // tick による currentTime 上書きを止める
-                    beginScrub()   // シーク中も音を出す
-                }
-                let start = dragStartTime ?? currentTime
-                let units = (value.translation.width / pointsPerUnit).rounded(.towardZero)
-                let target = min(max(0, start + units * dragUnit), duration)
-                pendingSeekTarget = target
-                currentTime = target   // コントローラのシークバーを目標位置へ追従
-                // 指を離す前から動画を追従させる（どのシーンか分かるように）。
-                seeker.seek(toSeconds: target, tolerance: 0.5)
-            }
-            .onEnded { value in
-                let isHorizontal = abs(value.translation.width) > abs(value.translation.height)
-                let target = pendingSeekTarget
-                dragStartTime = nil
-                pendingSeekTarget = nil
-                endScrub()   // 元の再生/停止状態へ戻す
-                isScrubbing = false
+    private func handlePanChanged(translation: CGSize, startLocation: CGPoint, viewSize: CGSize) {
+        guard hasSource, duration > 0 else { return }
+        // 横方向が主のドラッグだけシークプレビューを出す（コントロール表示中も可）。
+        guard abs(translation.width) > abs(translation.height) else { return }
+        if dragStartTime == nil {
+            dragStartTime = currentTime
+            dragUnit = Double(startLocation.y < viewSize.height / 2 ? seekUnitTop : seekUnitBottom)
+            isScrubbing = true   // tick による currentTime 上書きを止める
+            beginScrub()   // シーク中も音を出す
+        }
+        let start = dragStartTime ?? currentTime
+        let units = (translation.width / pointsPerUnit).rounded(.towardZero)
+        let target = min(max(0, start + units * dragUnit), duration)
+        pendingSeekTarget = target
+        currentTime = target   // コントローラのシークバーを目標位置へ追従
+        // 指を離す前から動画を追従させる（どのシーンか分かるように）。
+        seeker.seek(toSeconds: target, tolerance: 0.5)
+    }
 
-                if isHorizontal {
-                    guard let target else { return }
-                    seeker.seek(toSeconds: target, tolerance: 0)   // 最終位置へ正確にシーク
-                    currentTime = target
-                    if controlsVisible { scheduleAutoHide() }      // 操作中は自動非表示を延長
+    private func handlePanEnded(translation: CGSize) {
+        let isHorizontal = abs(translation.width) > abs(translation.height)
+        let target = pendingSeekTarget
+        dragStartTime = nil
+        pendingSeekTarget = nil
+        endScrub()   // 元の再生/停止状態へ戻す
+        isScrubbing = false
+
+        if isHorizontal {
+            guard let target else { return }
+            seeker.seek(toSeconds: target, tolerance: 0)   // 最終位置へ正確にシーク
+            currentTime = target
+            if controlsVisible { scheduleAutoHide() }      // 操作中は自動非表示を延長
+        } else {
+            // 縦スワイプ
+            guard abs(translation.height) > rotateThreshold else { return }
+            if translation.height < 0 {
+                // 上スワイプ → 横（縦状態のときのみ）
+                if !OrientationManager.shared.isLandscape {
+                    OrientationManager.shared.force(.landscapeRight)
+                }
+            } else {
+                // 下スワイプ
+                if OrientationManager.shared.isLandscape {
+                    OrientationManager.shared.force(.portrait)   // 横（フルスクリーン）→ 縦
                 } else {
-                    // 縦スワイプ
-                    guard abs(value.translation.height) > rotateThreshold else { return }
-                    if value.translation.height < 0 {
-                        // 上スワイプ → 横（縦状態のときのみ）
-                        if !OrientationManager.shared.isLandscape {
-                            OrientationManager.shared.force(.landscapeRight)
-                        }
-                    } else {
-                        // 下スワイプ
-                        if OrientationManager.shared.isLandscape {
-                            OrientationManager.shared.force(.portrait)   // 横（フルスクリーン）→ 縦
-                        } else {
-                            pip.start()                                   // 縦（非フルスクリーン）→ PiP
-                        }
-                    }
+                    pip.start()                                   // 縦（非フルスクリーン）→ PiP
                 }
             }
+        }
+    }
+
+    /// シングルタップ＝コントロール表示切替。
+    private func handleSingleTap() {
+        withAnimation(.easeInOut(duration: 0.2)) { controlsVisible.toggle() }
+        if controlsVisible { scheduleAutoHide() }
+    }
+
+    /// ダブルタップ＝左=戻る/右=進む。
+    private func handleDoubleTap(forward: Bool) {
+        skip(forward ? Double(doubleTapSeconds) : -Double(doubleTapSeconds))
+        doubleTapHint = (forward, doubleTapSeconds)
+        hintTask?.cancel()
+        hintTask = Task {
+            try? await Task.sleep(for: .seconds(0.6))
+            if !Task.isCancelled { doubleTapHint = nil }
+        }
     }
 
     private func skip(_ delta: Double) {
@@ -840,34 +856,6 @@ private struct iOSPlayer: View {
         currentTime = target
         seek(to: target)
         scheduleAutoHide()
-    }
-
-    /// ダブルタップして 2 回目を離さず長押しすると 2 倍速再生、離すと通常速度に戻す。
-    /// 先頭の単発タップ → 2 回目の接地を保持（LongPress）→ 離すまで（Drag）を連結して検出する。
-    /// 単発の長押しメニュー（contextMenu）と区別するため highPriorityGesture で優先する。
-    /// 長押し（保持）を検出するジェスチャー。LongPress→Drag を連結し、離すまで保持状態を維持する。
-    /// 連結ジェスチャーの Value は Equatable でなく onChanged が使えないため updating で @GestureState に反映し、
-    /// その変化を onChange で拾う。指を離すと GestureState が自動で false に戻る。
-    private var pressGesture: some Gesture {
-        LongPressGesture(minimumDuration: 0.3)
-            .sequenced(before: DragGesture(minimumDistance: 0))
-            .updating($pressHolding) { value, state, _ in
-                if case .second(true, _) = value { state = true }
-            }
-    }
-
-    /// 長押しが認識された。直前にタップがあれば「ダブルタップ長押し」とみなし 2 倍速、
-    /// なければ素の長押しとしてメニューを出す。
-    private func beginHold() {
-        if Date().timeIntervalSince(lastTapUp) < 0.5 {
-            engageFastForward()
-        } else {
-            showingActionMenu = true
-        }
-    }
-
-    private func endHold() {
-        disengageFastForward()
     }
 
     private func engageFastForward() {
@@ -880,35 +868,6 @@ private struct iOSPlayer: View {
         guard fastForwarding else { return }
         fastForwarding = false
         player.rate = Float(playbackRate)   // 通常速度で再生継続（スキップしない）
-    }
-
-    /// コントロールの下に敷くタップ層（左右2分割）。
-    /// シングルタップ＝コントロール表示切替、ダブルタップ＝左=戻る/右=進む。
-    /// `onTapGesture` なのでボタン（上層）の操作を妨げない。
-    /// コントロール表示中も、上層オーバーレイの背景はヒットテストを通すため空き領域で機能する。
-    private var tapLayer: some View {
-        HStack(spacing: 0) {
-            tapZone(forward: false)
-            tapZone(forward: true)
-        }
-    }
-
-    private func tapZone(forward: Bool) -> some View {
-        Color.clear
-            .contentShape(Rectangle())
-            .onTapGesture(count: 2) {
-                skip(forward ? Double(doubleTapSeconds) : -Double(doubleTapSeconds))
-                doubleTapHint = (forward, doubleTapSeconds)
-                hintTask?.cancel()
-                hintTask = Task {
-                    try? await Task.sleep(for: .seconds(0.6))
-                    if !Task.isCancelled { doubleTapHint = nil }
-                }
-            }
-            .onTapGesture {
-                withAnimation(.easeInOut(duration: 0.2)) { controlsVisible.toggle() }
-                if controlsVisible { scheduleAutoHide() }
-            }
     }
 
     /// ブックマーク一覧の小窓用。左右ダブルタップで指定秒数だけ移動する（メインと同じ操作）。
@@ -1020,6 +979,113 @@ private struct PlayerLayerView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: PlayerUIView, context: Context) {}
+}
+
+/// プレイヤー中央のタッチ操作を UIKit の認識器でまとめて扱う透明レイヤー。
+/// `UILongPressGestureRecognizer.numberOfTapsRequired = 1` が「ダブルタップして
+/// 2 回目を離さず長押し」をそのまま表す。SwiftUI のジェスチャー合成では判定が
+/// 安定しないため UIKit で実装し、`require(toFail:)` で各操作を明確に振り分ける。
+private struct GestureSurface: UIViewRepresentable {
+    var onSingleTap: () -> Void
+    var onDoubleTap: (_ forward: Bool) -> Void
+    var onFastForwardStart: () -> Void
+    var onFastForwardEnd: () -> Void
+    var onMenu: () -> Void
+    var onPanChanged: (_ translation: CGSize, _ startLocation: CGPoint, _ viewSize: CGSize) -> Void
+    var onPanEnded: (_ translation: CGSize) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
+        let c = context.coordinator
+
+        let single = UITapGestureRecognizer(target: c, action: #selector(Coordinator.handleSingle(_:)))
+        single.numberOfTapsRequired = 1
+        single.delegate = c
+
+        let double = UITapGestureRecognizer(target: c, action: #selector(Coordinator.handleDouble(_:)))
+        double.numberOfTapsRequired = 2
+        double.delegate = c
+
+        // ダブルタップして 2 回目を離さず長押し → 2 倍速。
+        let fast = UILongPressGestureRecognizer(target: c, action: #selector(Coordinator.handleFast(_:)))
+        fast.numberOfTapsRequired = 1
+        fast.minimumPressDuration = 0.25
+        fast.delegate = c
+
+        // 素の長押し → メニュー。
+        let menu = UILongPressGestureRecognizer(target: c, action: #selector(Coordinator.handleMenu(_:)))
+        menu.numberOfTapsRequired = 0
+        menu.minimumPressDuration = 0.45
+        menu.delegate = c
+
+        let pan = UIPanGestureRecognizer(target: c, action: #selector(Coordinator.handlePan(_:)))
+        pan.delegate = c
+
+        // 振り分け：シングルはダブル/長押しが不成立のときだけ。メニューはダブルタップ
+        // 長押し（2倍速）やダブルタップ（スキップ）のときは出さない。
+        single.require(toFail: double)
+        single.require(toFail: fast)
+        menu.require(toFail: fast)
+        menu.require(toFail: double)
+
+        [single, double, fast, menu, pan].forEach { view.addGestureRecognizer($0) }
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.parent = self
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var parent: GestureSurface
+        private var panStart: CGPoint = .zero
+
+        init(_ parent: GestureSurface) { self.parent = parent }
+
+        @objc func handleSingle(_ g: UITapGestureRecognizer) { parent.onSingleTap() }
+
+        @objc func handleDouble(_ g: UITapGestureRecognizer) {
+            guard let view = g.view else { return }
+            let x = g.location(in: view).x
+            parent.onDoubleTap(x > view.bounds.width / 2)
+        }
+
+        @objc func handleFast(_ g: UILongPressGestureRecognizer) {
+            switch g.state {
+            case .began: parent.onFastForwardStart()
+            case .ended, .cancelled, .failed: parent.onFastForwardEnd()
+            default: break
+            }
+        }
+
+        @objc func handleMenu(_ g: UILongPressGestureRecognizer) {
+            if g.state == .began { parent.onMenu() }
+        }
+
+        @objc func handlePan(_ g: UIPanGestureRecognizer) {
+            guard let view = g.view else { return }
+            let t = g.translation(in: view)
+            let translation = CGSize(width: t.x, height: t.y)
+            switch g.state {
+            case .began:
+                panStart = g.location(in: view)
+            case .changed:
+                parent.onPanChanged(translation, panStart, view.bounds.size)
+            case .ended, .cancelled, .failed:
+                parent.onPanEnded(translation)
+            default:
+                break
+            }
+        }
+
+        func gestureRecognizer(_ g: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            true
+        }
+    }
 }
 
 /// 再生（AVPlayer・PiP・描画レイヤー）を画面遷移より長く保持する永続モデル。
