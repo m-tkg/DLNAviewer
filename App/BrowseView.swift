@@ -60,19 +60,26 @@ struct BrowseView: View {
                     Button("再試行") { Task { await load(force: true) } }
                 }
             } else if displayObjects.isEmpty {
-                if isSearching {
-                    ContentUnavailableView.search(text: searchText)
-                } else if isFiltering {
-                    ContentUnavailableView {
-                        Label("該当する項目がありません", systemImage: "line.3.horizontal.decrease.circle")
-                    } description: {
-                        Text("評価フィルタを変更してください。")
+                // 空のときもプルで再読み込みできるよう ScrollView に載せる。
+                ScrollView {
+                    Group {
+                        if isSearching {
+                            ContentUnavailableView.search(text: searchText)
+                        } else if isFiltering {
+                            ContentUnavailableView {
+                                Label("該当する項目がありません", systemImage: "line.3.horizontal.decrease.circle")
+                            } description: {
+                                Text("評価フィルタを変更してください。")
+                            }
+                        } else if downloadsMode {
+                            ContentUnavailableView("ダウンロードはありません", systemImage: "arrow.down.circle")
+                        } else {
+                            ContentUnavailableView("項目がありません", systemImage: "tray")
+                        }
                     }
-                } else if downloadsMode {
-                    ContentUnavailableView("ダウンロードはありません", systemImage: "arrow.down.circle")
-                } else {
-                    ContentUnavailableView("項目がありません", systemImage: "tray")
+                    .frame(maxWidth: .infinity, minHeight: 480)
                 }
+                .refreshable { await load(force: true) }
             } else if gridMode {
                 grid
             } else {
