@@ -25,11 +25,11 @@ struct FavoriteFolderStoreTests {
         #expect(folders[0].server.id == "udn:1")
     }
 
-    @Test("同一サーバー・同一フォルダは重複追加されない")
+    @Test("同一サーバー・同一フォルダ（同じ objectID・同じ名前）は重複追加されない")
     func deduplicates() {
         let store = FavoriteFolderStore(storage: MemoryStorage(), key: "test")
         let a = store.add(server: makeServer(), objectID: "64", title: "映画")
-        let b = store.add(server: makeServer(), objectID: "64", title: "映画（別名）")
+        let b = store.add(server: makeServer(), objectID: "64", title: "映画")
         #expect(store.folders().count == 1)
         #expect(a.id == b.id)
     }
@@ -46,8 +46,16 @@ struct FavoriteFolderStoreTests {
     func contains() {
         let store = FavoriteFolderStore(storage: MemoryStorage(), key: "test")
         store.add(server: makeServer(), objectID: "64", title: "映画")
-        #expect(store.contains(serverID: "udn:1", objectID: "64"))
-        #expect(!store.contains(serverID: "udn:1", objectID: "99"))
+        #expect(store.contains(serverID: "udn:1", objectID: "64", title: "映画"))
+        #expect(!store.contains(serverID: "udn:1", objectID: "99", title: "映画"))
+    }
+
+    @Test("同じ objectID でも名前が違えば別物として扱う（再利用フォルダへの誤マーク防止）")
+    func sameObjectIDDifferentTitle() {
+        let store = FavoriteFolderStore(storage: MemoryStorage(), key: "test")
+        store.add(server: makeServer(), objectID: "64", title: "映画")
+        #expect(store.contains(serverID: "udn:1", objectID: "64", title: "映画"))
+        #expect(!store.contains(serverID: "udn:1", objectID: "64", title: "別フォルダ"))
     }
 
     @Test("削除できる")
@@ -67,11 +75,11 @@ struct FavoriteFolderStoreTests {
         let store = FavoriteFolderStore(storage: MemoryStorage(), key: "test")
         let added = store.toggle(server: makeServer(), objectID: "64", title: "映画")
         #expect(added)
-        #expect(store.contains(serverID: "udn:1", objectID: "64"))
+        #expect(store.contains(serverID: "udn:1", objectID: "64", title: "映画"))
 
         let removed = store.toggle(server: makeServer(), objectID: "64", title: "映画")
         #expect(!removed)
-        #expect(!store.contains(serverID: "udn:1", objectID: "64"))
+        #expect(!store.contains(serverID: "udn:1", objectID: "64", title: "映画"))
     }
 
     @Test("別インスタンスでも永続化が共有される")

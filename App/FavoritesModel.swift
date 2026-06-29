@@ -21,8 +21,8 @@ final class FavoritesModel {
         folders = store.folders()
     }
 
-    func contains(serverID: String, objectID: String) -> Bool {
-        store.contains(serverID: serverID, objectID: objectID)
+    func contains(serverID: String, objectID: String, title: String) -> Bool {
+        store.contains(serverID: serverID, objectID: objectID, title: title)
     }
 
     /// 登録/解除を切り替える。
