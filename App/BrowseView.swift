@@ -702,9 +702,9 @@ struct BrowseView: View {
             return
         }
         do {
-            let result = try await client.browse(controlURL: controlURL, objectID: objectID)
-            objects = result.objects
-            BrowseCache.shared.store(result.objects, server: server, objectID: objectID)
+            let items = try await client.browseAll(controlURL: controlURL, objectID: objectID)
+            objects = items
+            BrowseCache.shared.store(items, server: server, objectID: objectID)
         } catch is CancellationError {
             // pull-to-refresh などで前の読み込みが中断された正常なキャンセル。エラー表示しない。
         } catch let urlError as URLError where urlError.code == .cancelled {

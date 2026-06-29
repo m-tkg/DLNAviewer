@@ -52,6 +52,40 @@ struct ContentDirectoryClientTests {
         #expect(result.objects.map(\.title) == ["Movies", "Big Buck Bunny"])
     }
 
+    /// テスト用に BrowseResponse XML を組み立てる。
+    static func responseXML(items: [(id: String, title: String)], total: Int) -> Data {
+        let didl = items.map {
+            "&lt;item id=\"\($0.id)\"&gt;&lt;dc:title&gt;\($0.title)&lt;/dc:title&gt;&lt;upnp:class&gt;object.item.videoItem&lt;/upnp:class&gt;&lt;/item&gt;"
+        }.joined()
+        let xml = """
+        <?xml version="1.0"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body>
+        <u:BrowseResponse xmlns:u="urn:schemas-upnp-org:service:ContentDirectory:1">
+        <Result>&lt;DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/"&gt;\(didl)&lt;/DIDL-Lite&gt;</Result>
+        <NumberReturned>\(items.count)</NumberReturned>
+        <TotalMatches>\(total)</TotalMatches>
+        </u:BrowseResponse></s:Body></s:Envelope>
+        """
+        return Data(xml.utf8)
+    }
+
+    @Test("browseAll は totalMatches に達するまで全ページを取得して結合する")
+    func browseAllPaging() async throws {
+        let client = ContentDirectoryClient { request in
+            let body = String(data: request.httpBody ?? Data(), encoding: .utf8) ?? ""
+            // 1 ページ目（StartingIndex 0）は 2 件、以降は残り 1 件。総数は 3。
+            if body.contains("<StartingIndex>0</StartingIndex>") {
+                return Self.responseXML(items: [("1", "A"), ("2", "B")], total: 3)
+            }
+            return Self.responseXML(items: [("3", "C")], total: 3)
+        }
+        let objects = try await client.browseAll(
+            controlURL: URL(string: "http://x/ctl")!, objectID: "0", pageSize: 2
+        )
+        #expect(objects.count == 3)
+        #expect(objects.map(\.title) == ["A", "B", "C"])
+    }
+
     @Test("browse() は transport 経由でレスポンスを取得し解析する")
     func browseUsesTransport() async throws {
         let data = try Self.fixture("browse_response")
