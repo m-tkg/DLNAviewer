@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import ImageIO
 import DLNAKit
 
 /// 同時実行数を制限するシンプルな非同期セマフォ。
@@ -65,6 +66,28 @@ final class ThumbnailCache: @unchecked Sendable {
         let time = CMTime(seconds: max(seconds, 0), preferredTimescale: 600)
         return try? await generator.image(at: time).image
     }
+
+    /// サーバー提供のサムネイル画像 URL を取得し、省メモリにダウンサンプリングしてキャッシュする。
+    /// 一度取得すれば NSCache に残るので、フォルダを開き直しても即表示できる。
+    func remoteImage(from url: URL, maxSize: CGFloat = 320) async -> CGImage? {
+        let key = "remote#\(url.absoluteString)"
+        if let cached = image(for: key) { return cached }
+        if Task.isCancelled { return nil }
+        await limiter.wait()
+        defer { Task { await limiter.signal() } }
+        if Task.isCancelled { return nil }
+        guard let (data, _) = try? await URLSession.shared.data(from: url),
+              let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxSize,
+        ]
+        guard let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        store(cg, for: key)
+        return cg
+    }
 }
 
 /// 動画アイテムのサムネイルを表示する。
@@ -74,51 +97,27 @@ struct ThumbnailView: View {
     /// nil の場合は親から与えられたフレームいっぱいに表示する。
     var size: CGSize? = nil
 
-    @State private var generated: CGImage?
+    @State private var image: CGImage?
 
     var body: some View {
         // 「このシーンをサムネイルにする」で時刻が設定されていれば、その時刻のフレームを優先。
         let overrideTime = ThumbnailsModel.shared.time(for: item)
         return Group {
-            if overrideTime != nil {
-                generatedImage
-            } else if let url = item.thumbnailURL {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image.resizable().aspectRatio(contentMode: .fit)
-                    case .failure:
-                        placeholder
-                    case .empty:
-                        ProgressView()
-                    @unknown default:
-                        placeholder
-                    }
-                }
+            if let image {
+                Image(decorative: image, scale: 1)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
             } else {
-                generatedImage
+                placeholder
             }
         }
         .frame(width: size?.width, height: size?.height)
         .clipped()
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary))
-        // 上書き時刻が変わったら作り直す（生成表示が必要な場合のみ）。
+        // 上書き時刻が変わったら作り直す。
         .task(id: overrideTime) {
-            if overrideTime != nil || item.thumbnailURL == nil {
-                await loadGenerated(at: overrideTime ?? 1)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var generatedImage: some View {
-        if let generated {
-            Image(decorative: generated, scale: 1)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-        } else {
-            placeholder
+            await load(overrideTime: overrideTime)
         }
     }
 
@@ -128,17 +127,32 @@ struct ThumbnailView: View {
             .foregroundStyle(.secondary)
     }
 
+    /// 上書き時刻 → サーバー提供サムネ → 動画から生成 の順で取得する。
+    /// いずれも `ThumbnailCache`（メモリ）に載るので、開き直したフォルダでは即表示される。
+    private func load(overrideTime: Double?) async {
+        if let overrideTime {
+            await loadGenerated(at: overrideTime)
+            return
+        }
+        if let url = item.thumbnailURL,
+           let cached = await ThumbnailCache.shared.remoteImage(from: url) {
+            image = cached
+            return
+        }
+        await loadGenerated(at: 1)
+    }
+
     private func loadGenerated(at seconds: Double) async {
         // ダウンロード済みならローカルファイルから生成（オフラインでも可）。
         guard let url = DownloadManager.shared.preferredURL(for: item) else { return }
         let cacheKey = "\(item.persistentKey)#\(Int(seconds))"
         if let cached = ThumbnailCache.shared.image(for: cacheKey) {
-            generated = cached
+            image = cached
             return
         }
-        if let image = await ThumbnailCache.shared.generate(from: url, at: seconds) {
-            ThumbnailCache.shared.store(image, for: cacheKey)
-            generated = image
+        if let cg = await ThumbnailCache.shared.generate(from: url, at: seconds) {
+            ThumbnailCache.shared.store(cg, for: cacheKey)
+            image = cg
         }
     }
 }
