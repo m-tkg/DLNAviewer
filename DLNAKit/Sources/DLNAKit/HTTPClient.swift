@@ -33,6 +33,11 @@ public enum DLNAHTTP {
         config.waitsForConnectivity = false
         config.timeoutIntervalForRequest = 12
         config.timeoutIntervalForResource = 25
+        // デバイス記述・SOAP Browse は常に最新を取得する。標準の URLCache を使うと、
+        // NAS の再起動中に一度返った壊れた応答（HTML エラーページ等）がヒューリスティック
+        // にキャッシュされ、以後そのサーバの解析が固着し続けることがあるため無効化する。
+        config.urlCache = nil
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
         return URLSession(configuration: config)
     }()
 

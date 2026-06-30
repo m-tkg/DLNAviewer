@@ -8,6 +8,7 @@ struct ServerListView: View {
     @State private var favorites = FavoritesModel.shared
     @State private var showingAdd = false
     @State private var showingSettings = false
+    @State private var editingServer: LibraryModel.ServerState?
     @Environment(\.scenePhase) private var scenePhase
     #if os(macOS)
     @State private var updater = UpdateChecker.shared
@@ -80,6 +81,9 @@ struct ServerListView: View {
             .sheet(isPresented: $showingAdd) {
                 AddServerView(model: model)
             }
+            .sheet(item: $editingServer) { state in
+                EditServerView(model: model, state: state)
+            }
             .sheet(isPresented: $showingSettings) {
                 SettingsView()
             }
@@ -139,9 +143,20 @@ struct ServerListView: View {
                                 } label: {
                                     Label("削除", systemImage: "trash")
                                 }
+                                Button {
+                                    editingServer = state
+                                } label: {
+                                    Label("編集", systemImage: "pencil")
+                                }
+                                .tint(.blue)
                             }
-                            // macOS は右クリック、iOS は長押しで削除できる。
+                            // macOS は右クリック、iOS は長押しで編集・削除できる。
                             .contextMenu {
+                                Button {
+                                    editingServer = state
+                                } label: {
+                                    Label("設定を編集…", systemImage: "pencil")
+                                }
                                 Button(role: .destructive) {
                                     model.remove(state)
                                 } label: {
@@ -310,6 +325,72 @@ struct AddServerView: View {
                         }
                     }
                     .disabled(urlString.isEmpty || isAdding)
+                }
+            }
+        }
+    }
+}
+
+/// 登録済みサーバーの記述 URL（IP / ポート / パス）と表示名を編集するシート。
+struct EditServerView: View {
+    let model: LibraryModel
+    let state: LibraryModel.ServerState
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var urlString: String
+    @State private var name: String
+    @State private var isSaving = false
+
+    init(model: LibraryModel, state: LibraryModel.ServerState) {
+        self.model = model
+        self.state = state
+        _urlString = State(initialValue: state.entry.descriptionURL.absoluteString)
+        _name = State(initialValue: state.entry.name ?? "")
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("記述 URL（IP / ポート / パス）") {
+                    TextField("http://192.168.1.10:8200/rootDesc.xml", text: $urlString)
+                        #if os(iOS)
+                        .textInputAutocapitalization(.never)
+                        .keyboardType(.URL)
+                        #endif
+                        .autocorrectionDisabled()
+                    if let error = model.addError {
+                        Text(error).font(.caption).foregroundStyle(.red)
+                    }
+                }
+                Section("表示名（任意）") {
+                    TextField(state.server?.friendlyName ?? "DLNA Server", text: $name)
+                        .autocorrectionDisabled()
+                }
+                Section {
+                    Text("IP アドレスやポートが変わった場合は、ここで記述 URL を直してください。保存すると再接続します。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("サーバーを編集")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .onAppear { model.addError = nil }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("キャンセル") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") {
+                        Task {
+                            isSaving = true
+                            await model.updateManualServer(id: state.entry.id, urlString: urlString, name: name)
+                            isSaving = false
+                            if model.addError == nil { dismiss() }
+                        }
+                    }
+                    .disabled(urlString.isEmpty || isSaving)
                 }
             }
         }

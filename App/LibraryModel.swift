@@ -138,6 +138,24 @@ final class LibraryModel {
         }
     }
 
+    /// 登録済みサーバーの記述 URL と表示名を更新し、再解決する。
+    func updateManualServer(id: UUID, urlString: String, name: String?) async {
+        addError = nil
+        guard let url = Self.normalizeURL(urlString) else {
+            addError = "URL の形式が正しくありません"
+            return
+        }
+        let trimmedName = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanName = (trimmedName?.isEmpty == false) ? trimmedName : nil
+        guard let updated = store.update(id: id, descriptionURL: url, name: cleanName) else { return }
+        if let index = servers.firstIndex(where: { $0.id == id }) {
+            servers[index].entry = updated
+            servers[index].server = nil
+            servers[index].error = nil
+            await resolve(at: index)
+        }
+    }
+
     /// サーバーを一覧と永続化から削除する。
     func remove(_ state: ServerState) {
         store.remove(id: state.entry.id)
