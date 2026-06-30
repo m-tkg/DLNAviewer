@@ -61,6 +61,19 @@ public final class ManualServerStore: @unchecked Sendable {
         return entry
     }
 
+    /// 指定 ID のエントリの記述 URL と名前を更新する（id と並び順は維持）。
+    /// - Returns: 更新後のエントリ。該当 ID が無ければ nil。
+    @discardableResult
+    public func update(id: UUID, descriptionURL: URL, name: String?) -> ManualServerEntry? {
+        lock.lock(); defer { lock.unlock() }
+        var list = load()
+        guard let index = list.firstIndex(where: { $0.id == id }) else { return nil }
+        list[index].descriptionURL = descriptionURL
+        list[index].name = name
+        save(list)
+        return list[index]
+    }
+
     /// 指定 ID のエントリを削除する。
     public func remove(id: UUID) {
         lock.lock(); defer { lock.unlock() }

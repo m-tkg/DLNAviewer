@@ -45,6 +45,38 @@ struct ManualServerStoreTests {
         #expect(entries.first?.descriptionURL == URL(string: "http://h2/d.xml"))
     }
 
+    @Test("URL と名前を更新できる（id と並び順は維持）")
+    func update() {
+        let store = ManualServerStore(storage: MemoryStorage(), key: "test")
+        let first = store.add(descriptionURL: URL(string: "http://h1/d.xml")!, name: "A")
+        let second = store.add(descriptionURL: URL(string: "http://h2/d.xml")!, name: "B")
+
+        let updated = store.update(
+            id: first.id,
+            descriptionURL: URL(string: "http://192.168.1.20:9000/desc.xml")!,
+            name: "NAS"
+        )
+        #expect(updated?.id == first.id)
+
+        let entries = store.entries()
+        #expect(entries.count == 2)
+        #expect(entries[0].id == first.id)   // 並び順維持
+        #expect(entries[0].descriptionURL == URL(string: "http://192.168.1.20:9000/desc.xml"))
+        #expect(entries[0].name == "NAS")
+        #expect(entries[1].id == second.id)  // 他は不変
+        #expect(entries[1].descriptionURL == URL(string: "http://h2/d.xml"))
+    }
+
+    @Test("存在しない id の更新は nil を返し何も変えない")
+    func updateMissing() {
+        let store = ManualServerStore(storage: MemoryStorage(), key: "test")
+        store.add(descriptionURL: URL(string: "http://h1/d.xml")!)
+        let result = store.update(id: UUID(), descriptionURL: URL(string: "http://x/y.xml")!, name: nil)
+        #expect(result == nil)
+        #expect(store.entries().count == 1)
+        #expect(store.entries()[0].descriptionURL == URL(string: "http://h1/d.xml"))
+    }
+
     @Test("別インスタンスでも永続化が共有される")
     func persistsAcrossInstances() {
         let storage = MemoryStorage()
