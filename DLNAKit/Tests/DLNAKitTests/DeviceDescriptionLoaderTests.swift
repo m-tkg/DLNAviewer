@@ -46,6 +46,28 @@ struct DeviceDescriptionLoaderTests {
         }
     }
 
+    @Test("壊れた応答は malformedXML に受信本文の先頭を含めて投げる")
+    func malformedIncludesSnippet() {
+        let body = "<html><body>503 truncated"   // XML として不正
+        #expect {
+            _ = try DeviceDescriptionLoader.parse(Data(body.utf8),
+                                                  descriptionURL: URL(string: "http://h/d.xml")!)
+        } throws: { error in
+            guard case let DeviceDescriptionLoader.LoaderError.malformedXML(snippet) = error else { return false }
+            return snippet.contains("503 truncated")
+        }
+    }
+
+    @Test("空の応答でも malformedXML（空である旨を示す）")
+    func emptyResponse() {
+        #expect {
+            _ = try DeviceDescriptionLoader.parse(Data(), descriptionURL: URL(string: "http://h/d.xml")!)
+        } throws: { error in
+            if case .malformedXML = error as! DeviceDescriptionLoader.LoaderError { return true }
+            return false
+        }
+    }
+
     @Test("load() は transport から取得して解析する")
     func loadUsesTransport() async throws {
         let data = try Self.fixture("device_description")
