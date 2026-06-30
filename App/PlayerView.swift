@@ -131,6 +131,8 @@ private struct iOSPlayer: View {
     // シーク中の音声再生用
     @State private var scrubAudioActive = false
     @State private var wasPlayingBeforeScrub = false
+    // シーク中だけスタール待機を有効化し、再生が安定したら元（待たない＝即時再生）へ戻す予約。
+    @State private var restoreStallWaitingWhenPlaying = false
 
     // スワイプシーク用
     @State private var viewHeight: CGFloat = 1
@@ -705,6 +707,9 @@ private struct iOSPlayer: View {
         }
         hasSource = true
         isPlaying = true
+        // シーク中だけ有効化する待機設定が前アイテムから残らないよう、即時再生モードへ戻す。
+        restoreStallWaitingWhenPlaying = false
+        player.automaticallyWaitsToMinimizeStalling = false
         applyPlaybackRate()
         scheduleAutoHide()
     }
@@ -734,6 +739,11 @@ private struct iOSPlayer: View {
         isPlaying = player.timeControlStatus == .playing
         // 再生待ち（バッファ読み込み中）はコントロールを隠してスピナーを出す。
         isWaiting = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+        // シーク後、再生が実際に再開して安定したら、元の即時再生モードへ戻す。
+        if restoreStallWaitingWhenPlaying, player.timeControlStatus == .playing {
+            player.automaticallyWaitsToMinimizeStalling = false
+            restoreStallWaitingWhenPlaying = false
+        }
     }
 
     private func togglePlay() {
@@ -766,6 +776,10 @@ private struct iOSPlayer: View {
         guard !scrubAudioActive else { return }
         scrubAudioActive = true
         wasPlayingBeforeScrub = (player.timeControlStatus == .playing)
+        // ストリーミングではシーク先のバッファが空なので、待たない設定（即時再生）のままだと
+        // シーク後に止まったまま自動再開しない。シーク中だけ「再生可能になるまで待つ」を許可する。
+        restoreStallWaitingWhenPlaying = false
+        player.automaticallyWaitsToMinimizeStalling = true
         player.play()
         isPlaying = true
     }
@@ -777,6 +791,11 @@ private struct iOSPlayer: View {
         if !wasPlayingBeforeScrub {
             player.pause()
             isPlaying = false
+            // 停止確定なら即、元の即時再生モードへ戻す。
+            player.automaticallyWaitsToMinimizeStalling = false
+        } else {
+            // 再生継続。シーク先のバッファが溜まり再生が安定したら（tick で）即時再生モードへ戻す。
+            restoreStallWaitingWhenPlaying = true
         }
     }
 
