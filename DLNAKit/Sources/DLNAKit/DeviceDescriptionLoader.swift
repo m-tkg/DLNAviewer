@@ -5,8 +5,11 @@ public struct DeviceDescriptionLoader: Sendable {
     public typealias Transport = @Sendable (_ url: URL) async throws -> Data
 
     public enum LoaderError: Error, Equatable {
-        case malformedXML
+        /// XML として解析できなかった。`snippet` は受信本文の先頭（診断用）。
+        case malformedXML(snippet: String)
         case noContentDirectory
+        /// HTTP ステータスが 2xx 以外（例: 404 / 500）。
+        case httpStatus(Int)
     }
 
     let transport: Transport
@@ -16,7 +19,10 @@ public struct DeviceDescriptionLoader: Sendable {
     }
 
     public static let urlSessionTransport: Transport = { url in
-        let (data, _) = try await DLNAHTTP.data(from: url)
+        let (data, response) = try await DLNAHTTP.data(from: url)
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            throw LoaderError.httpStatus(http.statusCode)
+        }
         return data
     }
 
@@ -35,7 +41,7 @@ public struct DeviceDescriptionLoader: Sendable {
         let delegate = DeviceDescriptionDelegate()
         let parser = XMLParser(data: data)
         parser.delegate = delegate
-        guard parser.parse() else { throw LoaderError.malformedXML }
+        guard parser.parse() else { throw LoaderError.malformedXML(snippet: snippet(from: data)) }
 
         // controlURL は URLBase（あれば）または記述 URL を基準に絶対化する。
         let base = delegate.urlBase.flatMap { URL(string: $0) } ?? descriptionURL
@@ -53,6 +59,15 @@ public struct DeviceDescriptionLoader: Sendable {
             contentDirectoryControlURL: controlURL,
             origin: origin
         )
+    }
+
+    /// 受信本文の先頭を診断用の短い文字列にする（改行は詰める）。
+    static func snippet(from data: Data, limit: Int = 120) -> String {
+        let text = String(decoding: data.prefix(limit), as: UTF8.self)
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? "(空の応答)" : text
     }
 }
 

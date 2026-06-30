@@ -26,6 +26,9 @@ public enum HTTPRetry {
 /// それを避けるため `waitsForConnectivity` を有効にした専用セッションを使い、接続系エラーは
 /// 短い遅延を挟んで数回リトライする。
 public enum DLNAHTTP {
+    /// 端末非依存の汎用 UPnP コントロールポイントを名乗る User-Agent。
+    public static let userAgent = "DLNAviewer/1.0 UPnP/1.0"
+
     public static let session: URLSession = {
         let config = URLSessionConfiguration.default
         // 到達不能なサーバで長時間ブロックしないよう、接続回復は待たず短めの上限にする
@@ -38,6 +41,10 @@ public enum DLNAHTTP {
         // にキャッシュされ、以後そのサーバの解析が固着し続けることがあるため無効化する。
         config.urlCache = nil
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        // User-Agent を端末非依存の汎用 UPnP クライアントに固定する。一部の DLNA サーバーは
+        // クライアントの User-Agent（既定では iPhone/iPad など端末名を含む）で応答を出し分け、
+        // 特定端末にだけ壊れた/別構造の記述を返すことがあるため、両端末で同じ応答を引かせる。
+        config.httpAdditionalHeaders = ["User-Agent": userAgent]
         return URLSession(configuration: config)
     }()
 

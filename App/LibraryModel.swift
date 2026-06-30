@@ -176,8 +176,9 @@ final class LibraryModel {
     nonisolated static func message(for error: Error) -> String {
         if let loaderError = error as? DeviceDescriptionLoader.LoaderError {
             switch loaderError {
-            case .malformedXML: return "デバイス記述を解析できませんでした"
+            case .malformedXML(let snippet): return "デバイス記述を解析できませんでした。応答: \(snippet)"
             case .noContentDirectory: return "ContentDirectory が見つかりません"
+            case .httpStatus(let code): return "サーバが HTTP \(code) を返しました"
             }
         }
         return (error as NSError).localizedDescription
