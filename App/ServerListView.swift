@@ -6,6 +6,9 @@ struct ServerListView: View {
     @State private var model = LibraryModel.shared
     @State private var ratings = RatingsModel.shared
     @State private var favorites = FavoritesModel.shared
+    // お気に入りの名前変更用。
+    @State private var renamingFavorite: FavoriteFolder?
+    @State private var renameText = ""
     @State private var showingAdd = false
     @State private var showingSettings = false
     @State private var editingServer: LibraryModel.ServerState?
@@ -192,12 +195,12 @@ struct ServerListView: View {
             }
             // 3. お気に入り
             if !favorites.folders.isEmpty {
-                Section("お気に入り") {
+                Section {
                     ForEach(favorites.folders) { folder in
                         NavigationLink(value: BrowseRoute(server: folder.server, objectID: folder.objectID, title: folder.title, path: folder.path, resolveByPath: true)) {
                             Label {
                                 VStack(alignment: .leading) {
-                                    Text(folder.title)
+                                    Text(folder.displayName ?? folder.title)
                                     Text(folder.server.friendlyName)
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
@@ -212,14 +215,37 @@ struct ServerListView: View {
                             } label: {
                                 Label("お気に入り解除", systemImage: "star.slash")
                             }
+                            Button {
+                                beginRename(folder)
+                            } label: {
+                                Label("名前を変更", systemImage: "pencil")
+                            }
+                            .tint(.blue)
                         }
                         .contextMenu {
+                            Button {
+                                beginRename(folder)
+                            } label: {
+                                Label("名前を変更", systemImage: "pencil")
+                            }
                             Button(role: .destructive) {
                                 favorites.remove(id: folder.id)
                             } label: {
                                 Label("お気に入り解除", systemImage: "star.slash")
                             }
                         }
+                    }
+                    .onMove { source, destination in
+                        favorites.move(fromOffsets: source, toOffset: destination)
+                    }
+                } header: {
+                    HStack {
+                        Text("お気に入り")
+                        #if os(iOS)
+                        Spacer()
+                        // 2 件以上あるときだけ並べ替えボタンを出す（macOS は行のドラッグで並べ替え可）。
+                        if favorites.folders.count > 1 { EditButton() }
+                        #endif
                     }
                 }
             }
@@ -237,6 +263,25 @@ struct ServerListView: View {
             await model.resolveAll()
             await model.discover()
         }
+        .alert("名前を変更", isPresented: Binding(
+            get: { renamingFavorite != nil },
+            set: { if !$0 { renamingFavorite = nil } }
+        )) {
+            TextField("表示名（空でフォルダ名に戻す）", text: $renameText)
+            Button("キャンセル", role: .cancel) { renamingFavorite = nil }
+            Button("保存") {
+                if let folder = renamingFavorite {
+                    favorites.rename(id: folder.id, to: renameText)
+                }
+                renamingFavorite = nil
+            }
+        }
+    }
+
+    /// 名前変更ダイアログを開く。現在の表示名（無ければ実名）を初期値にする。
+    private func beginRename(_ folder: FavoriteFolder) {
+        renameText = folder.displayName ?? folder.title
+        renamingFavorite = folder
     }
 }
 
