@@ -37,4 +37,16 @@ final class FavoritesModel {
         store.remove(id: id)
         folders = store.folders()
     }
+
+    /// 表示名を変更する（空文字ならフォルダ実名へ戻す）。
+    func rename(id: String, to displayName: String) {
+        store.rename(id: id, to: displayName)
+        folders = store.folders()
+    }
+
+    /// 並べ替え（SwiftUI の `onMove` から呼ぶ）。
+    func move(fromOffsets source: IndexSet, toOffset destination: Int) {
+        store.move(fromOffsets: source, toOffset: destination)
+        folders = store.folders()
+    }
 }

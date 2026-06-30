@@ -91,4 +91,50 @@ struct FavoriteFolderStoreTests {
         let store2 = FavoriteFolderStore(storage: storage, key: "test")
         #expect(store2.folders().count == 1)
     }
+
+    // MARK: - 表示名・並べ替え
+
+    @Test("追加直後の表示名は nil")
+    func addLeavesDisplayNameNil() {
+        let store = FavoriteFolderStore(storage: MemoryStorage(), key: "test")
+        store.add(server: makeServer(), objectID: "64", title: "映画")
+        #expect(store.folders().first?.displayName == nil)
+    }
+
+    @Test("表示名を付けられる")
+    func renameSetsDisplayName() {
+        let store = FavoriteFolderStore(storage: MemoryStorage(), key: "test")
+        let folder = store.add(server: makeServer(), objectID: "64", title: "映画")
+        store.rename(id: folder.id, to: "お気に入り映画")
+        #expect(store.folders().first?.displayName == "お気に入り映画")
+    }
+
+    @Test("空文字の表示名は実名へ戻す")
+    func renameWithEmptyClearsDisplayName() {
+        let store = FavoriteFolderStore(storage: MemoryStorage(), key: "test")
+        let folder = store.add(server: makeServer(), objectID: "64", title: "映画")
+        store.rename(id: folder.id, to: "別名")
+        store.rename(id: folder.id, to: "")
+        #expect(store.folders().first?.displayName == nil)
+    }
+
+    @Test("並べ替えできる（先頭を末尾へ）")
+    func moveReordersFolders() {
+        let store = FavoriteFolderStore(storage: MemoryStorage(), key: "test")
+        store.add(server: makeServer(), objectID: "1", title: "A")
+        store.add(server: makeServer(), objectID: "2", title: "B")
+        store.add(server: makeServer(), objectID: "3", title: "C")
+        store.move(fromOffsets: IndexSet(integer: 0), toOffset: 3)
+        #expect(store.folders().map(\.title) == ["B", "C", "A"])
+    }
+
+    @Test("表示名は別インスタンスでも永続化される")
+    func renamePersistsAcrossInstances() {
+        let storage = MemoryStorage()
+        let store1 = FavoriteFolderStore(storage: storage, key: "test")
+        let folder = store1.add(server: makeServer(), objectID: "64", title: "映画")
+        store1.rename(id: folder.id, to: "お気に入り")
+        let store2 = FavoriteFolderStore(storage: storage, key: "test")
+        #expect(store2.folders().first?.displayName == "お気に入り")
+    }
 }

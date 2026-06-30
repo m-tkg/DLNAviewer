@@ -9,13 +9,17 @@ public struct FavoriteFolder: Codable, Hashable, Sendable, Identifiable {
     /// ルート直下からこのフォルダまでのフォルダ名の連なり（サーバー入れ替え時の objectID 再解決用）。
     /// 旧データには無いため、空のときは再解決せず objectID をそのまま使う。
     public var path: [String]
+    /// ユーザーが付けた表示名。`nil` のときは `title`（フォルダ実名）を表示する。
+    /// `id` の計算には含めないため、改名しても同じフォルダを指す ID は変わらない。
+    public var displayName: String?
 
-    public init(server: MediaServer, objectID: String, title: String, path: [String] = []) {
+    public init(server: MediaServer, objectID: String, title: String, path: [String] = [], displayName: String? = nil) {
         self.id = FavoriteFolder.makeID(serverID: server.id, objectID: objectID, title: title)
         self.server = server
         self.objectID = objectID
         self.title = title
         self.path = path
+        self.displayName = displayName
     }
 
     /// サーバー ID・フォルダ ID・フォルダ名から一意キーを作る。
@@ -25,7 +29,7 @@ public struct FavoriteFolder: Codable, Hashable, Sendable, Identifiable {
         "\(serverID)\u{1}\(objectID)\u{1}\(title)"
     }
 
-    private enum CodingKeys: String, CodingKey { case id, server, objectID, title, path }
+    private enum CodingKeys: String, CodingKey { case id, server, objectID, title, path, displayName }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -33,6 +37,7 @@ public struct FavoriteFolder: Codable, Hashable, Sendable, Identifiable {
         objectID = try c.decode(String.self, forKey: .objectID)
         title = try c.decode(String.self, forKey: .title)
         path = try c.decodeIfPresent([String].self, forKey: .path) ?? []   // 旧データ互換
+        displayName = try c.decodeIfPresent(String.self, forKey: .displayName)   // 旧データは nil
         // id は objectID+title から再計算する（旧データの objectID のみの id を移行）。
         id = FavoriteFolder.makeID(serverID: server.id, objectID: objectID, title: title)
     }
@@ -44,6 +49,7 @@ public struct FavoriteFolder: Codable, Hashable, Sendable, Identifiable {
         try c.encode(objectID, forKey: .objectID)
         try c.encode(title, forKey: .title)
         try c.encode(path, forKey: .path)
+        try c.encodeIfPresent(displayName, forKey: .displayName)
     }
 }
 
@@ -84,6 +90,31 @@ public final class FavoriteFolderStore: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         var list = load()
         list.removeAll { $0.id == id }
+        save(list)
+    }
+
+    /// 指定 ID のお気に入りに表示名を付ける。空文字（または空白のみ）なら `nil` に戻し、
+    /// フォルダ実名（`title`）表示へ戻す。
+    public func rename(id: String, to displayName: String) {
+        lock.lock(); defer { lock.unlock() }
+        var list = load()
+        guard let idx = list.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        list[idx].displayName = trimmed.isEmpty ? nil : trimmed
+        save(list)
+    }
+
+    /// 並べ替え（SwiftUI の `onMove` から渡る `IndexSet`/挿入先をそのまま適用）。
+    /// DLNAKit は SwiftUI 非依存のため、`Array.move(fromOffsets:toOffset:)` 相当を自前実装する。
+    public func move(fromOffsets source: IndexSet, toOffset destination: Int) {
+        lock.lock(); defer { lock.unlock() }
+        var list = load()
+        let moving = source.sorted().map { list[$0] }
+        // 後ろの要素から削除してインデックスのずれを防ぐ。
+        for i in source.sorted(by: >) { list.remove(at: i) }
+        // 削除で前方が詰まった分、挿入位置を補正する。
+        let insertAt = destination - source.filter { $0 < destination }.count
+        list.insert(contentsOf: moving, at: insertAt)
         save(list)
     }
 
