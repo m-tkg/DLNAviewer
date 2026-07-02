@@ -859,7 +859,7 @@ private struct VideoRow: View {
         var parts: [String] = []
         if let res = item.preferredVideoResource {
             if let seconds = res.durationSeconds {
-                parts.append(Self.formatDuration(seconds))
+                parts.append(TimeFormatting.timeString(seconds, rounded: true))
             }
             if let resolution = res.resolution {
                 parts.append(resolution)
@@ -868,15 +868,6 @@ private struct VideoRow: View {
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    static func formatDuration(_ seconds: Double) -> String {
-        let total = Int(seconds.rounded())
-        let h = total / 3600
-        let m = (total % 3600) / 60
-        let s = total % 60
-        return h > 0
-            ? String(format: "%d:%02d:%02d", h, m, s)
-            : String(format: "%d:%02d", m, s)
-    }
 }
 
 /// タイルのサムネ左下用。タグを横一列に詰め、入りきらない分は "…" で省略する。
