@@ -51,11 +51,7 @@ private struct MacPlayer: View {
         .navigationTitle(item.title)
         .onAppear {
             guard player == nil, let url = DownloadManager.shared.preferredURL(for: item) else { return }
-            let asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: false])
-            let playerItem = AVPlayerItem(asset: asset)
-            playerItem.preferredForwardBufferDuration = 0
-            playerItem.canUseNetworkResourcesForLiveStreamingWhilePaused = true
-            let player = AVPlayer(playerItem: playerItem)
+            let player = AVPlayer(playerItem: PlayerItemFactory.make(url: url))
             player.automaticallyWaitsToMinimizeStalling = false
             self.player = player
             player.play()
@@ -1110,13 +1106,7 @@ final class PlaybackModel {
             return true
         }
         if pip.isActive { pip.stop() }   // 別アイテム → 旧 PiP を停止
-        // 数GB・長尺動画の省メモリ・高速ロード: 精密タイミングを取得せずに開く
-        // （シークはキーフレーム単位になる）。先読みは AVPlayer の自動管理に任せてメモリを抑える。
-        let asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: false])
-        let playerItem = AVPlayerItem(asset: asset)
-        playerItem.preferredForwardBufferDuration = 0
-        playerItem.canUseNetworkResourcesForLiveStreamingWhilePaused = true
-        player.replaceCurrentItem(with: playerItem)
+        player.replaceCurrentItem(with: PlayerItemFactory.make(url: url))
         loadedKey = item.id
         player.play()
         return true
