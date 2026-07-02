@@ -50,10 +50,16 @@ xcodebuild -project DLNAviewer.xcodeproj -scheme DLNAviewer -destination 'generi
 
 # DLNAKit のユニットテスト（swift-testing）
 cd DLNAKit && swift test
+
+# App 側のユニットテスト（AppTests/ 配下・swift-testing。実行は macOS destination で行う）
+xcodebuild test -project DLNAviewer.xcodeproj -scheme DLNAviewer -destination 'platform=macOS' -allowProvisioningUpdates
 ```
 
 - **SourceKit が出す `No such module 'DLNAKit'` はノイズ**。`xcodebuild` は通る。判断はビルド結果で行う。
 - 変更後は **iOS と macOS の両方**をビルドして確認する。
+- App 側モデルのテストは `AppTests/` に置く（`DLNAviewerTests` ターゲット）。ストアは
+  `Store(storage: InMemoryStorage())` を注入して組む。macOS の TEST_HOST はバンドル構造の差を
+  project.yml の SDK 別設定で吸収している（xcodegen/Xcode 更新で壊れたら macOS のみテスト実行に退避）。
 
 ## 配布 / CI
 

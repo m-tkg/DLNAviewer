@@ -4,7 +4,6 @@ import DLNAKit
 /// サーバー一覧画面（アプリのルート）。
 struct ServerListView: View {
     @State private var model = LibraryModel.shared
-    @State private var ratings = RatingsModel.shared
     @State private var favorites = FavoritesModel.shared
     // お気に入りの名前変更用。
     @State private var renamingFavorite: FavoriteFolder?
@@ -101,7 +100,7 @@ struct ServerListView: View {
             }
             // iCloud 同期で他デバイスの変更を取り込んだらキャッシュを再読込。
             .onReceive(NotificationCenter.default.publisher(for: .cloudSyncDidUpdate)) { _ in
-                ratings.reload()
+                RatingsModel.shared.reload()
                 BookmarksModel.shared.reload()
                 ThumbnailsModel.shared.reload()
                 TagsModel.shared.reload()
@@ -124,7 +123,6 @@ struct ServerListView: View {
             }
             #endif
         }
-        .environment(ratings)
         // 他アプリ等から戻った時（前面化）に PiP が起動中なら自動解除する。
         .onChange(of: scenePhase) { _, phase in
             #if os(iOS)
