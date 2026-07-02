@@ -23,6 +23,9 @@ public struct ContentDirectoryClient: Sendable {
     public enum ClientError: Error, Equatable {
         case malformedResponse
         case httpError(Int)
+        /// StartingIndex を無視する、または TotalMatches が不正な値を返し続けるなど、
+        /// 非準拠サーバーの応答によってページング取得が終わらないと判断し打ち切った。
+        case pagingAborted
     }
 
     /// ネットワーク送信を抽象化（テスト時に差し替え可能）。
@@ -73,28 +76,41 @@ public struct ContentDirectoryClient: Sendable {
     }
 
     /// 全ページを取得して結合する（大きなフォルダを 1 リクエストで全件取得して詰まるのを避ける）。
+    ///
+    /// - Parameter maxPages: 安全装置としてのページ数上限。既定値でも `pageSize` との掛け算で
+    ///   十分な件数（既定 200 件 × 100 ページ = 20,000 件）をカバーする。TotalMatches を不正に
+    ///   大きい値で返し続ける非準拠サーバーに対して、ここで確実にループを打ち切る。
     public func browseAll(
         controlURL: URL,
         objectID: String,
         filter: String = "*",
         sortCriteria: String = "",
-        pageSize: Int = 200
+        pageSize: Int = 200,
+        maxPages: Int = 100
     ) async throws -> [DIDLObject] {
         var all: [DIDLObject] = []
         var start = 0
-        while true {
+        var previousFirstID: String?
+        for _ in 0..<maxPages {
             let result = try await browse(
                 controlURL: controlURL, objectID: objectID,
                 filter: filter, startingIndex: start, requestedCount: pageSize, sortCriteria: sortCriteria
             )
+            // StartingIndex を無視して直前と同じ先頭ページを返すサーバーは、上限まで待たず即座に打ち切る。
+            let firstID = result.objects.first?.id
+            if let firstID, firstID == previousFirstID {
+                throw ClientError.pagingAborted
+            }
+            previousFirstID = firstID
             all.append(contentsOf: result.objects)
             let returned = result.numberReturned
             start += returned
             // このページが空（これ以上進めない）か、総数に達したら終了。
             // returned==0 を必ず終了条件にすることで、StartingIndex を無視するサーバでの無限ループも防ぐ。
-            if returned == 0 || start >= result.totalMatches { break }
+            if returned == 0 || start >= result.totalMatches { return all }
         }
-        return all
+        // maxPages に達しても終わらない = TotalMatches が不正な値を返し続けている可能性が高い。
+        throw ClientError.pagingAborted
     }
 
     // MARK: - SOAP 組み立て / 解析（純粋関数）

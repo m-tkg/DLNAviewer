@@ -181,6 +181,13 @@ final class LibraryModel {
             case .httpStatus(let code): return "サーバが HTTP \(code) を返しました"
             }
         }
+        if let clientError = error as? ContentDirectoryClient.ClientError {
+            switch clientError {
+            case .malformedResponse: return "サーバーの応答を解析できませんでした"
+            case .httpError(let code): return "サーバが HTTP \(code) を返しました"
+            case .pagingAborted: return "フォルダの一覧取得を中断しました（サーバーの応答が異常です）"
+            }
+        }
         return (error as NSError).localizedDescription
     }
 }
