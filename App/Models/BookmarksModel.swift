@@ -46,7 +46,11 @@ final class BookmarksModel {
     }
 
     /// 同一性キー。旧スキーム（タイトルのみ／object id）のデータが残っていれば一度だけ移行する。
+    /// cache への書き込みは移行が起きたときだけ（参照だけで observable な変更を発生させない）。
     private func key(for item: MediaItem) -> String {
-        PersistentKeyMigration.key(for: item, cache: &cache) { store.setBookmarks($0, for: $1) }
+        PersistentKeyMigration.key(for: item, lookup: { cache[$0] }) { value, key in
+            cache[key] = value
+            store.setBookmarks(value, for: key)
+        }
     }
 }
