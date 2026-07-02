@@ -69,6 +69,23 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
 
+  DLNAviewerTests:
+    type: bundle.unit-test
+    supportedDestinations: [iOS, macOS]
+    deploymentTarget:
+      iOS: "26.0"
+      macOS: "26.0"
+    sources:
+      - path: AppTests
+    dependencies:
+      - target: DLNAviewer
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        # xcodegen は iOS 形式（DLNAviewer.app/DLNAviewer）の TEST_HOST を生成するため、
+        # macOS はバンドル構造（Contents/MacOS/）に合わせて上書きする。
+        "TEST_HOST[sdk=macosx*]": "$(BUILT_PRODUCTS_DIR)/DLNAviewer.app/Contents/MacOS/DLNAviewer"
+
 schemes:
   DLNAviewer:
     build:
@@ -76,5 +93,8 @@ schemes:
         DLNAviewer: all
     run:
       config: Debug
+    test:
+      targets:
+        - DLNAviewerTests
     archive:
       config: Release
