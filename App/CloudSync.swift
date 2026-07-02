@@ -1,14 +1,21 @@
 import Foundation
 
-extension Notification.Name {
-    /// iCloud から他デバイスの変更を取り込んだ時に通知する。
-    static let cloudSyncDidUpdate = Notification.Name("CloudSyncDidUpdate")
+/// iCloud 同期対象の UserDefaults キー 1 件。
+///
+/// `reload` はリモート変更を取り込んだ後にモデルのキャッシュを再読込するためのフック。
+/// `@AppStorage` のキーは UserDefaults の変更が SwiftUI に自動反映されるため nil でよい。
+struct SyncedKey: Sendable {
+    let key: String
+    let reload: (@MainActor @Sendable () -> Void)?
 }
 
 /// 設定・評価・ブックマーク・手動サーバーを iCloud Key-Value Store で他デバイスと同期する。
 ///
 /// 既存の `UserDefaults` 保存はそのままに、対象キーを iCloud とミラーする。
 /// ダウンロード済みファイル等の大きいデータ・端末固有データは同期しない。
+///
+/// 同期対象キーを増やすときは `registry` に 1 エントリ追加するだけでよい
+/// （ストアのキーなら対応モデルの `reload` も添える）。
 final class CloudSync: NSObject, @unchecked Sendable {
     static let shared = CloudSync()
 
@@ -17,15 +24,44 @@ final class CloudSync: NSObject, @unchecked Sendable {
     private var applyingRemote = false
     private var started = false
 
-    /// 同期対象の UserDefaults キー。
-    private let syncKeys = [
+    /// 同期対象キーの一覧（同期の唯一の定義箇所）。
+    static let registry: [SyncedKey] = [
         // 設定（@AppStorage）
-        "seekUnitTop", "seekUnitBottom", "thumbnailSize", "playInSilentMode",
-        "browseGridMode", "filterLike", "filterDislike", "filterNone",
-        // ストア（JSON Data）
-        "manualServers", "videoRatings", "videoBookmarks", "thumbnailOverrides", "videoTags",
-        "favoriteFolders",
+        SyncedKey(key: "seekUnitTop", reload: nil),
+        SyncedKey(key: "seekUnitBottom", reload: nil),
+        SyncedKey(key: "thumbnailSize", reload: nil),
+        SyncedKey(key: "playInSilentMode", reload: nil),
+        SyncedKey(key: "browseGridMode", reload: nil),
+        SyncedKey(key: "filterLike", reload: nil),
+        SyncedKey(key: "filterDislike", reload: nil),
+        SyncedKey(key: "filterNone", reload: nil),
+        // ストア（JSON Data。モデルのキャッシュ再読込が必要）
+        SyncedKey(key: "manualServers", reload: { LibraryModel.shared.reload() }),
+        SyncedKey(key: "videoRatings", reload: { RatingsModel.shared.reload() }),
+        SyncedKey(key: "videoBookmarks", reload: { BookmarksModel.shared.reload() }),
+        SyncedKey(key: "thumbnailOverrides", reload: { ThumbnailsModel.shared.reload() }),
+        SyncedKey(key: "videoTags", reload: { TagsModel.shared.reload() }),
+        SyncedKey(key: "favoriteFolders", reload: { FavoritesModel.shared.reload() }),
     ]
+
+    /// 同期対象の UserDefaults キー。
+    private let syncKeys = CloudSync.registry.map(\.key)
+
+    /// 変更のあったキーに対応するモデルだけ再読込する。
+    @MainActor
+    static func reloadModels(changedKeys: [String]) {
+        for entry in registry where changedKeys.contains(entry.key) {
+            entry.reload?()
+        }
+    }
+
+    /// 全モデルを再読込する（孤立データ掃除などストアを直接書き換えた後に使う）。
+    @MainActor
+    static func reloadAllModels() {
+        for entry in registry {
+            entry.reload?()
+        }
+    }
 
     /// メインスレッドから呼ぶ。
     func start() {
@@ -47,10 +83,11 @@ final class CloudSync: NSObject, @unchecked Sendable {
         // 通知は任意スレッドで届くため、変更キーだけ取り出してメインで処理する。
         let keys = (note.userInfo?[NSUbiquitousKeyValueStoreChangedKeysKey] as? [String])?
             .filter { syncKeys.contains($0) } ?? syncKeys
-        DispatchQueue.main.async { [weak self] in
-            guard let self, !keys.isEmpty else { return }
+        guard !keys.isEmpty else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             self.pull(keys)
-            NotificationCenter.default.post(name: .cloudSyncDidUpdate, object: nil)
+            CloudSync.reloadModels(changedKeys: keys)
         }
     }
 

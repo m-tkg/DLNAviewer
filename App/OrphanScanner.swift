@@ -55,10 +55,7 @@ final class OrphanScanner {
         DownloadManager.shared.removeDownloads(persistentKeys: Set(report.downloads))
         DownloadManager.shared.removeOrphans()   // 記録と実ファイルの不整合も併せて掃除
         // モデルのキャッシュを更新する。
-        RatingsModel.shared.reload()
-        BookmarksModel.shared.reload()
-        TagsModel.shared.reload()
-        ThumbnailsModel.shared.reload()
+        CloudSync.reloadAllModels()
     }
 
     /// 1 フォルダ配下を再帰的に走査し、動画の persistentKey 集合を返す。
