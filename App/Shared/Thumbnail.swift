@@ -81,6 +81,12 @@ final class ThumbnailCache: @unchecked Sendable {
         await generate(from: url, at: 1, tolerance: 2, maxSize: maxSize)
     }
 
+    /// 動画から 1 フレーム生成するまでの最大待ち時間。
+    /// サーバーが動画ストリームへの応答をハングさせた場合でも、ここで必ず打ち切って
+    /// `limiter` を解放する（さもないと同時実行枠 4 が恒久的に埋まり、アプリ全体の
+    /// サムネイル生成が二度と進まなくなる）。
+    private static let generationTimeout: Double = 10
+
     /// 動画 URL の指定秒のフレームを生成する。
     func generate(from url: URL, at seconds: Double, tolerance: Double = 1, maxSize: CGFloat = 320) async -> CGImage? {
         if Task.isCancelled { return nil }
@@ -89,13 +95,20 @@ final class ThumbnailCache: @unchecked Sendable {
         defer { Task { await limiter.signal() } }
         if Task.isCancelled { return nil }
         let asset = AVURLAsset(url: url)
-        let generator = AVAssetImageGenerator(asset: asset)
+        // cancelAllCGImageGeneration() は生成中でも任意のスレッドから呼んでよい仕様
+        // （ドキュメントで明言されている）ため、タイムアウト用クロージャでの並行キャプチャは安全。
+        nonisolated(unsafe) let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
         generator.maximumSize = CGSize(width: maxSize, height: maxSize)
         generator.requestedTimeToleranceBefore = CMTime(seconds: tolerance, preferredTimescale: 600)
         generator.requestedTimeToleranceAfter = CMTime(seconds: tolerance, preferredTimescale: 600)
         let time = CMTime(seconds: max(seconds, 0), preferredTimescale: 600)
-        return try? await generator.image(at: time).image
+        let generated: CGImage?? = await AsyncTimeout.run(
+            seconds: Self.generationTimeout,
+            onTimeout: { generator.cancelAllCGImageGeneration() },
+            operation: { try? await generator.image(at: time).image }
+        )
+        return generated ?? nil
     }
 
     /// 動画シーンサムネイルのキャッシュキー（`persistentKey#秒` に統一）。
