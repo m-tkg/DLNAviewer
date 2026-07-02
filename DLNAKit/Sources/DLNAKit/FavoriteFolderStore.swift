@@ -55,106 +55,82 @@ public struct FavoriteFolder: Codable, Hashable, Sendable, Identifiable {
 
 /// お気に入りフォルダの一覧を永続化するストア。
 public final class FavoriteFolderStore: @unchecked Sendable {
-    private let storage: KeyValueStorage
-    private let key: String
-    private let lock = NSLock()
+    private let core: JSONStoreCore<[FavoriteFolder]>
 
     public init(storage: KeyValueStorage = UserDefaults.standard, key: String = "favoriteFolders") {
-        self.storage = storage
-        self.key = key
+        core = JSONStoreCore(storage: storage, key: key, default: { [] })
     }
 
     /// 登録済みお気に入り一覧（登録順）。
     public func folders() -> [FavoriteFolder] {
-        lock.lock(); defer { lock.unlock() }
-        return load()
+        core.read { $0 }
     }
 
     /// お気に入りを追加する。同一サーバー・同一フォルダが既にあれば重複追加しない。
     @discardableResult
     public func add(server: MediaServer, objectID: String, title: String, path: [String] = []) -> FavoriteFolder {
-        lock.lock(); defer { lock.unlock() }
-        var list = load()
         let id = FavoriteFolder.makeID(serverID: server.id, objectID: objectID, title: title)
-        if let existing = list.first(where: { $0.id == id }) {
-            return existing
+        return core.mutate { list in
+            if let existing = list.first(where: { $0.id == id }) {
+                return existing
+            }
+            let entry = FavoriteFolder(server: server, objectID: objectID, title: title, path: path)
+            list.append(entry)
+            return entry
         }
-        let entry = FavoriteFolder(server: server, objectID: objectID, title: title, path: path)
-        list.append(entry)
-        save(list)
-        return entry
     }
 
     /// 指定 ID のお気に入りを削除する。
     public func remove(id: String) {
-        lock.lock(); defer { lock.unlock() }
-        var list = load()
-        list.removeAll { $0.id == id }
-        save(list)
+        core.mutate { list in
+            list.removeAll { $0.id == id }
+        }
     }
 
     /// 指定 ID のお気に入りに表示名を付ける。空文字（または空白のみ）なら `nil` に戻し、
     /// フォルダ実名（`title`）表示へ戻す。
     public func rename(id: String, to displayName: String) {
-        lock.lock(); defer { lock.unlock() }
-        var list = load()
-        guard let idx = list.firstIndex(where: { $0.id == id }) else { return }
         let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        list[idx].displayName = trimmed.isEmpty ? nil : trimmed
-        save(list)
+        core.mutate { list in
+            guard let idx = list.firstIndex(where: { $0.id == id }) else { return }
+            list[idx].displayName = trimmed.isEmpty ? nil : trimmed
+        }
     }
 
     /// 並べ替え（SwiftUI の `onMove` から渡る `IndexSet`/挿入先をそのまま適用）。
     /// DLNAKit は SwiftUI 非依存のため、`Array.move(fromOffsets:toOffset:)` 相当を自前実装する。
     public func move(fromOffsets source: IndexSet, toOffset destination: Int) {
-        lock.lock(); defer { lock.unlock() }
-        var list = load()
-        let moving = source.sorted().map { list[$0] }
-        // 後ろの要素から削除してインデックスのずれを防ぐ。
-        for i in source.sorted(by: >) { list.remove(at: i) }
-        // 削除で前方が詰まった分、挿入位置を補正する。
-        let insertAt = destination - source.filter { $0 < destination }.count
-        list.insert(contentsOf: moving, at: insertAt)
-        save(list)
+        core.mutate { list in
+            let moving = source.sorted().map { list[$0] }
+            // 後ろの要素から削除してインデックスのずれを防ぐ。
+            for i in source.sorted(by: >) { list.remove(at: i) }
+            // 削除で前方が詰まった分、挿入位置を補正する。
+            let insertAt = destination - source.filter { $0 < destination }.count
+            list.insert(contentsOf: moving, at: insertAt)
+        }
     }
 
     /// 指定サーバー・フォルダが登録済みか。
     public func contains(serverID: String, objectID: String, title: String) -> Bool {
-        lock.lock(); defer { lock.unlock() }
         let id = FavoriteFolder.makeID(serverID: serverID, objectID: objectID, title: title)
-        return load().contains { $0.id == id }
+        return core.read { list in
+            list.contains { $0.id == id }
+        }
     }
 
     /// 登録/解除を切り替える。
     /// - Returns: 切り替え後に登録されていれば `true`、解除されていれば `false`。
     @discardableResult
     public func toggle(server: MediaServer, objectID: String, title: String, path: [String] = []) -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        var list = load()
         let id = FavoriteFolder.makeID(serverID: server.id, objectID: objectID, title: title)
-        if list.contains(where: { $0.id == id }) {
-            list.removeAll { $0.id == id }
-            save(list)
-            return false
-        } else {
-            list.append(FavoriteFolder(server: server, objectID: objectID, title: title, path: path))
-            save(list)
-            return true
+        return core.mutate { list in
+            if list.contains(where: { $0.id == id }) {
+                list.removeAll { $0.id == id }
+                return false
+            } else {
+                list.append(FavoriteFolder(server: server, objectID: objectID, title: title, path: path))
+                return true
+            }
         }
-    }
-
-    // MARK: - 内部
-
-    private func load() -> [FavoriteFolder] {
-        guard let data = storage.data(forKey: key),
-              let list = try? JSONDecoder().decode([FavoriteFolder].self, from: data) else {
-            return []
-        }
-        return list
-    }
-
-    private func save(_ list: [FavoriteFolder]) {
-        let data = try? JSONEncoder().encode(list)
-        storage.set(data, forKey: key)
     }
 }

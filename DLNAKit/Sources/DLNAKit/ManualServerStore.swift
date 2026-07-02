@@ -13,87 +13,49 @@ public struct ManualServerEntry: Codable, Hashable, Sendable, Identifiable {
     }
 }
 
-/// `ManualServerStore` の永続化バックエンド（テスト時に差し替え可能）。
-public protocol KeyValueStorage: AnyObject, Sendable {
-    func data(forKey key: String) -> Data?
-    func set(_ data: Data?, forKey key: String)
-}
-
-extension UserDefaults: @retroactive @unchecked Sendable {}
-extension UserDefaults: KeyValueStorage {
-    public func data(forKey key: String) -> Data? {
-        object(forKey: key) as? Data
-    }
-    public func set(_ data: Data?, forKey key: String) {
-        setValue(data, forKey: key)
-    }
-}
-
 /// 手動登録サーバーの一覧を永続化するストア。
 public final class ManualServerStore: @unchecked Sendable {
-    private let storage: KeyValueStorage
-    private let key: String
-    private let lock = NSLock()
+    private let core: JSONStoreCore<[ManualServerEntry]>
 
     public init(storage: KeyValueStorage = UserDefaults.standard, key: String = "manualServers") {
-        self.storage = storage
-        self.key = key
+        core = JSONStoreCore(storage: storage, key: key, default: { [] })
     }
 
     /// 登録済みエントリ一覧（登録順）。
     public func entries() -> [ManualServerEntry] {
-        lock.lock(); defer { lock.unlock() }
-        return load()
+        core.read { $0 }
     }
 
     /// 記述 URL を追加する。同一 URL が既にあれば重複追加しない。
     /// - Returns: 追加（または既存）エントリ。
     @discardableResult
     public func add(descriptionURL: URL, name: String? = nil) -> ManualServerEntry {
-        lock.lock(); defer { lock.unlock() }
-        var list = load()
-        if let existing = list.first(where: { $0.descriptionURL == descriptionURL }) {
-            return existing
+        core.mutate { list in
+            if let existing = list.first(where: { $0.descriptionURL == descriptionURL }) {
+                return existing
+            }
+            let entry = ManualServerEntry(descriptionURL: descriptionURL, name: name)
+            list.append(entry)
+            return entry
         }
-        let entry = ManualServerEntry(descriptionURL: descriptionURL, name: name)
-        list.append(entry)
-        save(list)
-        return entry
     }
 
     /// 指定 ID のエントリの記述 URL と名前を更新する（id と並び順は維持）。
     /// - Returns: 更新後のエントリ。該当 ID が無ければ nil。
     @discardableResult
     public func update(id: UUID, descriptionURL: URL, name: String?) -> ManualServerEntry? {
-        lock.lock(); defer { lock.unlock() }
-        var list = load()
-        guard let index = list.firstIndex(where: { $0.id == id }) else { return nil }
-        list[index].descriptionURL = descriptionURL
-        list[index].name = name
-        save(list)
-        return list[index]
+        core.mutate { list in
+            guard let index = list.firstIndex(where: { $0.id == id }) else { return nil }
+            list[index].descriptionURL = descriptionURL
+            list[index].name = name
+            return list[index]
+        }
     }
 
     /// 指定 ID のエントリを削除する。
     public func remove(id: UUID) {
-        lock.lock(); defer { lock.unlock() }
-        var list = load()
-        list.removeAll { $0.id == id }
-        save(list)
-    }
-
-    // MARK: - 内部
-
-    private func load() -> [ManualServerEntry] {
-        guard let data = storage.data(forKey: key),
-              let list = try? JSONDecoder().decode([ManualServerEntry].self, from: data) else {
-            return []
+        core.mutate { list in
+            list.removeAll { $0.id == id }
         }
-        return list
-    }
-
-    private func save(_ list: [ManualServerEntry]) {
-        let data = try? JSONEncoder().encode(list)
-        storage.set(data, forKey: key)
     }
 }

@@ -2,12 +2,8 @@ import Foundation
 import Testing
 @testable import DLNAKit
 
-/// テスト用のインメモリ永続化。
-final class MemoryStorage: KeyValueStorage, @unchecked Sendable {
-    private var dict: [String: Data] = [:]
-    func data(forKey key: String) -> Data? { dict[key] }
-    func set(_ data: Data?, forKey key: String) { dict[key] = data }
-}
+/// テスト用のインメモリ永続化（本体の `InMemoryStorage` に統合済み）。
+typealias MemoryStorage = InMemoryStorage
 
 @Suite("ManualServerStore")
 struct ManualServerStoreTests {
