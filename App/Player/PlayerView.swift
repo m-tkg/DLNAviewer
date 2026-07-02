@@ -26,23 +26,6 @@ struct PlayerView: View {
     }
 }
 
-/// 評価（Like / Dislike / なし）を選ぶメニュー。長押し・右クリックから使う。
-struct RatingMenu: View {
-    let item: MediaItem
-    let ratings: RatingsModel
-
-    var body: some View {
-        Picker("評価", selection: Binding(
-            get: { ratings.rating(for: item) },
-            set: { ratings.set($0, for: item) }
-        )) {
-            Label("Like", systemImage: "hand.thumbsup").tag(Rating.like)
-            Label("Dislike", systemImage: "hand.thumbsdown").tag(Rating.dislike)
-            Label("評価なし", systemImage: "minus").tag(Rating.none)
-        }
-    }
-}
-
 // MARK: - macOS
 
 #if os(macOS)
@@ -417,11 +400,7 @@ private struct iOSPlayer: View {
     /// 長押しメニュー（評価・サムネ設定・シーン解析）。confirmationDialog に出す。
     @ViewBuilder
     private var actionMenuButtons: some View {
-        Button("👍 Like") { ratings.set(.like, for: item) }
-        Button("👎 Dislike") { ratings.set(.dislike, for: item) }
-        if ratings.rating(for: item) != .none {
-            Button("評価なし") { ratings.set(.none, for: item) }
-        }
+        RatingDialogButtons(item: item, ratings: ratings)
         Button("このシーンをサムネイルにする") {
             let time = player.currentTime().seconds
             if time.isFinite { ThumbnailsModel.shared.set(time, for: item) }

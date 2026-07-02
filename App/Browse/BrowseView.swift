@@ -423,7 +423,7 @@ struct BrowseView: View {
                 }
                 // 左スワイプ（trailing）で評価を選択。
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                    ratingButtons(for: item)
+                    RatingSwipeButtons(item: item, ratings: ratings)
                 }
                 // 長押し（iOS）/ 右クリック（macOS）で評価・ダウンロード。
                 .contextMenu {
@@ -550,23 +550,6 @@ struct BrowseView: View {
         }
     }
 
-    /// スワイプ用の評価ボタン。
-    @ViewBuilder
-    private func ratingButtons(for item: MediaItem) -> some View {
-        let current = ratings.rating(for: item)
-        Button { ratings.set(.like, for: item) } label: {
-            Label("Like", systemImage: "hand.thumbsup")
-        }.tint(.green)
-        Button { ratings.set(.dislike, for: item) } label: {
-            Label("Dislike", systemImage: "hand.thumbsdown")
-        }.tint(.red)
-        if current != .none {
-            Button { ratings.set(.none, for: item) } label: {
-                Label("クリア", systemImage: "xmark")
-            }.tint(.gray)
-        }
-    }
-
     /// お気に入り登録済みか（`favorites.folders` を参照するので登録状態の変化で再描画される）。
     private func isFavorite(_ container: MediaContainer) -> Bool {
         guard let server else { return false }
@@ -593,7 +576,7 @@ struct BrowseView: View {
     /// 長押し（コンテキスト）メニュー本体：評価＋ダウンロード。
     @ViewBuilder
     private func itemMenu(for item: MediaItem) -> some View {
-        ratingMenu(for: item)
+        RatingMenu(item: item, ratings: ratings)
         Button { tagEditItem = item } label: {
             Label("タグを編集…", systemImage: "tag")
         }
@@ -689,20 +672,6 @@ struct BrowseView: View {
                     Label("ダウンロード", systemImage: "arrow.down.circle")
                 }
             }
-        }
-    }
-
-    /// コンテキストメニュー用の評価項目（現在の評価にチェック）。
-    @ViewBuilder
-    private func ratingMenu(for item: MediaItem) -> some View {
-        let current = ratings.rating(for: item)
-        Picker("評価", selection: Binding(
-            get: { current },
-            set: { ratings.set($0, for: item) }
-        )) {
-            Label("Like", systemImage: "hand.thumbsup").tag(Rating.like)
-            Label("Dislike", systemImage: "hand.thumbsdown").tag(Rating.dislike)
-            Label("評価なし", systemImage: "minus").tag(Rating.none)
         }
     }
 
