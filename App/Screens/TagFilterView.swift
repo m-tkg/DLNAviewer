@@ -44,9 +44,7 @@ struct TagFilterView: View {
             }
             .searchable(text: $filter, prompt: "タグを検索")
             .navigationTitle("タグで検索")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完了") { dismiss() }

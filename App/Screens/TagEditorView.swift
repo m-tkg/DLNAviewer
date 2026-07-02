@@ -64,9 +64,7 @@ struct TagEditorView: View {
                 Section {
                     TextField("タグを入力", text: $input)
                         .autocorrectionDisabled()
-                        #if os(iOS)
-                        .textInputAutocapitalization(.never)
-                        #endif
+                        .noAutocapitalization()
                         .onSubmit(commitInput)
 
                     if canAddNew {
@@ -183,17 +181,13 @@ struct TagEditorView: View {
                 }
             }
             .navigationTitle("タグ")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完了") { dismiss() }
                 }
             }
-            .alert("タグの名前を変更", isPresented: Binding(
-                get: { renaming != nil }, set: { if !$0 { renaming = nil } }
-            )) {
+            .alert("タグの名前を変更", isPresented: Binding(presenting: $renaming)) {
                 TextField("新しい名前", text: $renameText)
                 Button("変更") {
                     if let old = renaming { tags.renameTag(old, to: renameText) }
@@ -201,9 +195,7 @@ struct TagEditorView: View {
                 }
                 Button("キャンセル", role: .cancel) { renaming = nil }
             }
-            .alert("タグを削除", isPresented: Binding(
-                get: { deleting != nil }, set: { if !$0 { deleting = nil } }
-            )) {
+            .alert("タグを削除", isPresented: Binding(presenting: $deleting)) {
                 Button("削除", role: .destructive) {
                     if let tag = deleting { tags.deleteTag(tag) }
                     deleting = nil

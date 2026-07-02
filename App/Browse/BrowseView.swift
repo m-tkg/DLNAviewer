@@ -127,17 +127,13 @@ struct BrowseView: View {
                     .allowsHitTesting(false)
             }
         }
-        .alert("自動チャプター", isPresented: Binding(
-            get: { chapterResult != nil }, set: { if !$0 { chapterResult = nil } }
-        )) {
+        .alert("自動チャプター", isPresented: Binding(presenting: $chapterResult)) {
             Button("OK") { chapterResult = nil }
         } message: {
             if let chapterResult { Text(chapterResult) }
         }
         .navigationTitle(title)
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
+        .inlineNavigationTitle()
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
@@ -208,9 +204,7 @@ struct BrowseView: View {
                     TextField("検索（正規表現可）", text: $searchText)
                         .textFieldStyle(.plain)
                         .autocorrectionDisabled()
-                        #if os(iOS)
-                        .textInputAutocapitalization(.never)
-                        #endif
+                        .noAutocapitalization()
                     if !searchText.isEmpty {
                         Button { searchText = "" } label: {
                             Image(systemName: "xmark.circle.fill")
