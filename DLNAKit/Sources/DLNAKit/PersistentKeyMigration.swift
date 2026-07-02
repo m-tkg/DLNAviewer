@@ -14,6 +14,15 @@ public enum PersistentKeyMigration {
         cache: inout [String: Value],
         persist: (Value, String) -> Void
     ) -> String {
-        item.persistentKey
+        let key = item.persistentKey
+        guard cache[key] == nil else { return key }
+        for legacy in item.legacyPersistentKeys where legacy != key {
+            if let value = cache[legacy] {
+                cache[key] = value
+                persist(value, key)
+                break
+            }
+        }
+        return key
     }
 }
