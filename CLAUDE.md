@@ -124,8 +124,9 @@ xcodebuild test -project DLNAviewer.xcodeproj -scheme DLNAviewer -destination 'p
   （タイトルのみ／object id）から**一度だけ遅延移行**する。新しい永続データを足すときもこの方式に倣う。
   `id` 自体（`Identifiable`・ナビゲーション・プレイリスト）は変更しない。ダウンロード（実ファイル）は
   対象外で id ベースのまま。
-- iCloud 同期対象キーを増やす場合は `CloudSync.syncKeys` に追加し、対応モデルの `reload()` を
-  `ServerListView` の `.cloudSyncDidUpdate` ハンドラに追加する。
+- iCloud 同期対象キーを増やす場合は `CloudSync.registry` に `SyncedKey` を 1 エントリ追加する
+  （`@AppStorage` のキーは `reload: nil`、ストアのキーは対応モデルの `reload` を添える）。
+  変更箇所はこの 1 箇所だけでよい。
 - Apple Intelligence 機能は `SystemLanguageModel` の availability を確認し、緩和ガードレール
   `.permissiveContentTransformations` を用いる。利用不可時は理由を UI に出す。
 

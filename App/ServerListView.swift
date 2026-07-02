@@ -98,15 +98,6 @@ struct ServerListView: View {
                 await updater.checkOnLaunch()
                 #endif
             }
-            // iCloud 同期で他デバイスの変更を取り込んだらキャッシュを再読込。
-            .onReceive(NotificationCenter.default.publisher(for: .cloudSyncDidUpdate)) { _ in
-                RatingsModel.shared.reload()
-                BookmarksModel.shared.reload()
-                ThumbnailsModel.shared.reload()
-                TagsModel.shared.reload()
-                favorites.reload()
-                model.reload()
-            }
             #if os(macOS)
             // 起動時チェックで新版が見つかったときの確認ダイアログ。
             .alert("新しいバージョンがあります", isPresented: Binding(
