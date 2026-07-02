@@ -13,22 +13,6 @@ public struct ManualServerEntry: Codable, Hashable, Sendable, Identifiable {
     }
 }
 
-/// `ManualServerStore` の永続化バックエンド（テスト時に差し替え可能）。
-public protocol KeyValueStorage: AnyObject, Sendable {
-    func data(forKey key: String) -> Data?
-    func set(_ data: Data?, forKey key: String)
-}
-
-extension UserDefaults: @retroactive @unchecked Sendable {}
-extension UserDefaults: KeyValueStorage {
-    public func data(forKey key: String) -> Data? {
-        object(forKey: key) as? Data
-    }
-    public func set(_ data: Data?, forKey key: String) {
-        setValue(data, forKey: key)
-    }
-}
-
 /// 手動登録サーバーの一覧を永続化するストア。
 public final class ManualServerStore: @unchecked Sendable {
     private let storage: KeyValueStorage
