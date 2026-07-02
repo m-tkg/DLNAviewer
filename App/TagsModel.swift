@@ -42,16 +42,7 @@ final class TagsModel {
 
     /// 同一性キー。旧スキーム（タイトルのみ／object id）のデータが残っていれば一度だけ移行する。
     private func key(for item: MediaItem) -> String {
-        let key = item.persistentKey
-        guard cache[key] == nil else { return key }
-        for legacy in item.legacyPersistentKeys where legacy != key {
-            if let value = cache[legacy] {
-                cache[key] = value
-                store.setTags(value, for: key)
-                break
-            }
-        }
-        return key
+        PersistentKeyMigration.key(for: item, cache: &cache) { store.setTags($0, for: $1) }
     }
 
     /// すべての動画で使われているタグ（ユニーク・昇順）。自動補完用。
