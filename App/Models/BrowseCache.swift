@@ -16,7 +16,8 @@ final class BrowseCache {
     /// この時間を超えたキャッシュは無効として取り直す（サーバー入れ替えへの追従）。
     private let ttl: TimeInterval = 120
 
-    private init() {}
+    /// 通常は `shared` を使う。テストでは独立したインスタンスを作れる。
+    init() {}
 
     private func key(server: MediaServer, objectID: String) -> String {
         "\(server.id)|\(objectID)"
