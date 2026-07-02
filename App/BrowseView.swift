@@ -20,7 +20,7 @@ struct BrowseView: View {
     /// true ならサーバーではなくダウンロード済みのローカル一覧を表示する。
     var downloadsMode = false
 
-    @Environment(RatingsModel.self) private var ratings
+    private var ratings: RatingsModel { RatingsModel.shared }
     @AppStorage("browseGridMode") private var gridMode = false
     // 評価フィルタ（ファイルのみ対象。フォルダは常に表示）。
     @AppStorage("filterLike") private var filterLike = true

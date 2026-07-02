@@ -48,7 +48,7 @@ struct RatingMenu: View {
 #if os(macOS)
 private struct MacPlayer: View {
     let item: MediaItem
-    @Environment(RatingsModel.self) private var ratings
+    private var ratings: RatingsModel { RatingsModel.shared }
     @State private var player: AVPlayer?
 
     var body: some View {
@@ -98,7 +98,7 @@ private struct iOSPlayer: View {
     private var item: MediaItem { items[index] }
 
     @Environment(\.dismiss) private var dismiss
-    @Environment(RatingsModel.self) private var ratings
+    private var ratings: RatingsModel { RatingsModel.shared }
 
     /// サイレントモードでも音を出すか（オフ＝サイレント尊重）。端末に永続化。
     @AppStorage("playInSilentMode") private var playInSilentMode = false
