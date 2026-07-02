@@ -48,6 +48,8 @@ final class JSONStoreCore<Value: Codable>: @unchecked Sendable {
     }
 
     private func save(_ value: Value) {
-        storage.set(try? JSONEncoder().encode(value), forKey: key)
+        // エンコード失敗時は既存データを消さない（nil で上書きしない）。
+        guard let data = try? JSONEncoder().encode(value) else { return }
+        storage.set(data, forKey: key)
     }
 }
