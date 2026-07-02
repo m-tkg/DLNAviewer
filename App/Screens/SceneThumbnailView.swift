@@ -26,14 +26,13 @@ struct SceneThumbnailView: View {
     }
 
     private func load() async {
-        let key = "\(item.id)@\(Int(time))"
-        if let cached = ThumbnailCache.shared.image(for: key) {
-            image = cached
-            return
-        }
-        guard let url = DownloadManager.shared.preferredURL(for: item) else { return }
-        if let generated = await ThumbnailCache.shared.generate(from: url, at: time) {
-            ThumbnailCache.shared.store(generated, for: key)
+        // キーは persistentKey#秒 に統一（ThumbnailView の生成キャッシュと共有される）。
+        // 旧 id@秒 キーのキャッシュは再生成可能なので破棄でよい。
+        if let generated = await ThumbnailCache.shared.sceneImage(
+            cacheKey: ThumbnailCache.sceneKey(for: item, at: time),
+            url: DownloadManager.shared.preferredURL(for: item),
+            at: time
+        ) {
             image = generated
         }
     }
