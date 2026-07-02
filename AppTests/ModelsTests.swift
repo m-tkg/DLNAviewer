@@ -50,6 +50,25 @@ struct RatingsModelTests {
         #expect(model.rating(for: item) == .like)
         #expect(store.rating(for: item.persistentKey) == .like, "新キーでストアに永続化される")
     }
+
+    @Test("rating(for:) の参照は監視中の状態を変更しない（View body での無限再描画ループの回帰テスト）")
+    func readDoesNotMutateObservedState() {
+        let model = RatingsModel(store: RatingStore(storage: InMemoryStorage()))
+        let item = makeItem()
+
+        // View body 相当: 監視しながら読む。読み取りが observable な cache への
+        // 書き込みを伴うと onChange が発火し、実アプリでは body 再評価の無限ループになる。
+        final class Flag: @unchecked Sendable { var invalidated = false }
+        let flag = Flag()
+        withObservationTracking {
+            _ = model.rating(for: item)
+        } onChange: {
+            flag.invalidated = true
+        }
+        // 2 回目の参照（再描画相当）。読み取りだけなら何も起きない。
+        _ = model.rating(for: item)
+        #expect(flag.invalidated == false, "評価の参照だけで View が無効化されてはならない")
+    }
 }
 
 @MainActor
