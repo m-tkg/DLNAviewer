@@ -82,18 +82,12 @@ struct TagEditorView: View {
                     Text("入力すると既存のタグが候補に表示されます。「aaa:bbb」の形式は aaa ごとにまとめて表示します。タグを長押しで名前変更・削除できます。")
                 }
 
-                // 自動補完候補（aaa:bbb は aaa ごとにグループ表示。見出しタップで展開）。
+                // 自動補完候補（aaa:bbb は aaa ごとにグループ表示。見出しタップで展開。
+                // 入力中は自動展開して候補を隠さない）。
                 ForEach(TagGrouping.grouped(suggestions)) { group in
-                    if let key = group.key {
-                        Section {
-                            DisclosureGroup(isExpanded: suggestionExpansionBinding(for: key)) {
-                                suggestionRows(group.tags)
-                            } label: {
-                                Label("\(key)（\(group.tags.count)）", systemImage: "tag.square")
-                            }
-                        }
-                    } else {
-                        Section { suggestionRows(group.tags) }
+                    Section {
+                        TagGroupDisclosure(group: group, forceExpanded: !trimmed.isEmpty,
+                                           expanded: $expandedSuggestions, row: suggestionRow)
                     }
                 }
 
@@ -228,26 +222,15 @@ struct TagEditorView: View {
         }
     }
 
-    /// 候補グループの展開状態。入力中（trimmed 非空）は常に展開して候補を隠さない。
-    private func suggestionExpansionBinding(for key: String) -> Binding<Bool> {
-        Binding(
-            get: { !trimmed.isEmpty || expandedSuggestions.contains(key) },
-            set: { if $0 { expandedSuggestions.insert(key) } else { expandedSuggestions.remove(key) } }
-        )
-    }
-
-    /// グループ内の補完候補行（ラベルを表示。タップでこの動画に付与）。
-    @ViewBuilder
-    private func suggestionRows(_ groupTags: [String]) -> some View {
-        ForEach(groupTags, id: \.self) { tag in
-            Button {
-                tags.add(tag, for: item)
-                input = ""
-            } label: {
-                Label(TagGrouping.label(for: tag), systemImage: "tag")
-            }
-            .contextMenu { tagManageMenu(tag) }
+    /// 補完候補 1 行分（ラベルを表示。タップでこの動画に付与）。
+    private func suggestionRow(_ tag: String) -> some View {
+        Button {
+            tags.add(tag, for: item)
+            input = ""
+        } label: {
+            Label(TagGrouping.label(for: tag), systemImage: "tag")
         }
+        .contextMenu { tagManageMenu(tag) }
     }
 
     /// タグの一括管理（名前変更・削除）メニュー。長押しから使う。

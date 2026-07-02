@@ -28,15 +28,15 @@ struct TagFilterView: View {
                 } else {
                     List {
                         ForEach(TagGrouping.grouped(filteredTags)) { group in
-                            if let key = group.key {
-                                // 見出しをタップで展開/折りたたみ。検索中は自動展開。
-                                DisclosureGroup(isExpanded: expansionBinding(for: key)) {
-                                    tagRows(group.tags)
-                                } label: {
-                                    Label("\(key)（\(group.tags.count)）", systemImage: "tag.square")
-                                }
+                            // 見出しをタップで展開/折りたたみ。検索中は自動展開。
+                            if group.key != nil {
+                                TagGroupDisclosure(group: group, forceExpanded: !filter.isEmpty,
+                                                   expanded: $expanded, row: tagRow)
                             } else {
-                                Section { tagRows(group.tags) }
+                                Section {
+                                    TagGroupDisclosure(group: group, forceExpanded: !filter.isEmpty,
+                                                       expanded: $expanded, row: tagRow)
+                                }
                             }
                         }
                     }
@@ -55,28 +55,17 @@ struct TagFilterView: View {
         }
     }
 
-    /// グループの展開状態。検索中（filter 非空）は常に展開して結果を隠さない。
-    private func expansionBinding(for key: String) -> Binding<Bool> {
-        Binding(
-            get: { !filter.isEmpty || expanded.contains(key) },
-            set: { if $0 { expanded.insert(key) } else { expanded.remove(key) } }
-        )
-    }
-
-    /// グループ内のタグ行（見出し以降のラベルを表示。タップで検索）。
-    @ViewBuilder
-    private func tagRows(_ groupTags: [String]) -> some View {
-        ForEach(groupTags, id: \.self) { tag in
-            Button {
-                onSelect(tag)
-                dismiss()
-            } label: {
-                HStack {
-                    Label(TagGrouping.label(for: tag), systemImage: "tag")
-                    Spacer()
-                    Text("\(tags.usageCount(tag)) 本")
-                        .foregroundStyle(.secondary)
-                }
+    /// タグ 1 行分（見出し以降のラベルを表示。タップで検索）。
+    private func tagRow(_ tag: String) -> some View {
+        Button {
+            onSelect(tag)
+            dismiss()
+        } label: {
+            HStack {
+                Label(TagGrouping.label(for: tag), systemImage: "tag")
+                Spacer()
+                Text("\(tags.usageCount(tag)) 本")
+                    .foregroundStyle(.secondary)
             }
         }
     }
