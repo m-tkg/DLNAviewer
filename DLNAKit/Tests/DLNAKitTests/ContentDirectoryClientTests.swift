@@ -2,11 +2,30 @@ import Foundation
 import Testing
 @testable import DLNAKit
 
+/// テスト用の呼び出し回数カウンタ（transport は逐次 await されるため lock 不要）。
+final class CallCounter: @unchecked Sendable {
+    private(set) var count = 0
+    @discardableResult
+    func increment() -> Int {
+        count += 1
+        return count
+    }
+}
+
 @Suite("ContentDirectoryClient")
 struct ContentDirectoryClientTests {
     static func fixture(_ name: String) throws -> Data {
         let url = try #require(Bundle.module.url(forResource: name, withExtension: "xml", subdirectory: "Fixtures"))
         return try Data(contentsOf: url)
+    }
+
+    /// SOAP ボディから `<StartingIndex>N</StartingIndex>` の N を取り出す。
+    static func extractStartingIndex(from body: String) -> Int {
+        guard let openRange = body.range(of: "<StartingIndex>"),
+              let closeRange = body.range(of: "</StartingIndex>", range: openRange.upperBound..<body.endIndex) else {
+            return 0
+        }
+        return Int(body[openRange.upperBound..<closeRange.lowerBound]) ?? 0
     }
 
     @Test("Browse の SOAP ボディに必要な要素が含まれる")
@@ -84,6 +103,42 @@ struct ContentDirectoryClientTests {
         )
         #expect(objects.count == 3)
         #expect(objects.map(\.title) == ["A", "B", "C"])
+    }
+
+    @Test("browseAll は StartingIndex を無視して同一ページを返し続けるサーバーに対して早期にエラーで打ち切る")
+    func browseAllAbortsOnRepeatedPage() async throws {
+        let counter = CallCounter()
+        let client = ContentDirectoryClient { _ in
+            counter.increment()
+            // StartingIndex を無視し、常に同じ先頭ページ（同じ id）を返す壊れたサーバーを模す。
+            return Self.responseXML(items: [("1", "A"), ("2", "B")], total: 100_000)
+        }
+        await #expect(throws: ContentDirectoryClient.ClientError.pagingAborted) {
+            _ = try await client.browseAll(
+                controlURL: URL(string: "http://x/ctl")!, objectID: "0", pageSize: 2
+            )
+        }
+        // 総数（100,000 件）に達するまで待たず、少数回のリクエストで打ち切られること。
+        #expect(counter.count <= 3)
+    }
+
+    @Test("browseAll は TotalMatches が不正に大きい値を返し続けても最大ページ数で打ち切る")
+    func browseAllAbortsOnMaxPages() async throws {
+        let counter = CallCounter()
+        let client = ContentDirectoryClient { request in
+            counter.increment()
+            let body = String(data: request.httpBody ?? Data(), encoding: .utf8) ?? ""
+            let startingIndex = Self.extractStartingIndex(from: body)
+            // 毎回ユニークなページを返す（同一ページ検出には引っかからない）が、
+            // TotalMatches は非現実的に巨大な値を返し続ける壊れたサーバーを模す。
+            return Self.responseXML(items: [("item-\(startingIndex)", "T\(startingIndex)")], total: 10_000_000)
+        }
+        await #expect(throws: ContentDirectoryClient.ClientError.pagingAborted) {
+            _ = try await client.browseAll(
+                controlURL: URL(string: "http://x/ctl")!, objectID: "0", pageSize: 1, maxPages: 5
+            )
+        }
+        #expect(counter.count == 5)
     }
 
     @Test("browse() は transport 経由でレスポンスを取得し解析する")
