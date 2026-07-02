@@ -35,6 +35,9 @@ final class CloudSync: NSObject, @unchecked Sendable {
         SyncedKey(key: "filterLike", reload: nil),
         SyncedKey(key: "filterDislike", reload: nil),
         SyncedKey(key: "filterNone", reload: nil),
+        SyncedKey(key: "skipSeconds", reload: nil),
+        SyncedKey(key: "doubleTapSeconds", reload: nil),
+        SyncedKey(key: "playbackRate", reload: nil),
         // ストア（JSON Data。モデルのキャッシュ再読込が必要）
         SyncedKey(key: "manualServers", reload: { LibraryModel.shared.reload() }),
         SyncedKey(key: "videoRatings", reload: { RatingsModel.shared.reload() }),
