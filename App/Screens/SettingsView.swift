@@ -94,9 +94,7 @@ struct SettingsView: View {
                 #endif
             }
             .navigationTitle("設定")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完了") { dismiss() }

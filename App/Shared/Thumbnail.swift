@@ -98,6 +98,20 @@ final class ThumbnailCache: @unchecked Sendable {
         return try? await generator.image(at: time).image
     }
 
+    /// 動画シーンサムネイルのキャッシュキー（`persistentKey#秒` に統一）。
+    static func sceneKey(for item: MediaItem, at seconds: Double) -> String {
+        "\(item.persistentKey)#\(Int(seconds))"
+    }
+
+    /// キャッシュ → 生成 → 保存 の順で動画シーンのサムネイルを取得する。
+    /// `url`（ローカル/ストリーミングの再生 URL）が nil ならキャッシュヒットのみ。
+    func sceneImage(cacheKey: String, url: URL?, at seconds: Double) async -> CGImage? {
+        if let cached = image(for: cacheKey) { return cached }
+        guard let url, let cg = await generate(from: url, at: seconds) else { return nil }
+        store(cg, for: cacheKey)
+        return cg
+    }
+
     /// サーバー提供のサムネイル画像 URL を取得し、省メモリにダウンサンプリングしてキャッシュする。
     /// 一度取得すれば NSCache に残るので、フォルダを開き直しても即表示できる。
     func remoteImage(from url: URL, maxSize: CGFloat = 320) async -> CGImage? {
@@ -175,14 +189,11 @@ struct ThumbnailView: View {
 
     private func loadGenerated(at seconds: Double) async {
         // ダウンロード済みならローカルファイルから生成（オフラインでも可）。
-        guard let url = DownloadManager.shared.preferredURL(for: item) else { return }
-        let cacheKey = "\(item.persistentKey)#\(Int(seconds))"
-        if let cached = ThumbnailCache.shared.image(for: cacheKey) {
-            image = cached
-            return
-        }
-        if let cg = await ThumbnailCache.shared.generate(from: url, at: seconds) {
-            ThumbnailCache.shared.store(cg, for: cacheKey)
+        if let cg = await ThumbnailCache.shared.sceneImage(
+            cacheKey: ThumbnailCache.sceneKey(for: item, at: seconds),
+            url: DownloadManager.shared.preferredURL(for: item),
+            at: seconds
+        ) {
             image = cg
         }
     }

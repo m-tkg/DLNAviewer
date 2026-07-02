@@ -26,23 +26,6 @@ struct PlayerView: View {
     }
 }
 
-/// 評価（Like / Dislike / なし）を選ぶメニュー。長押し・右クリックから使う。
-struct RatingMenu: View {
-    let item: MediaItem
-    let ratings: RatingsModel
-
-    var body: some View {
-        Picker("評価", selection: Binding(
-            get: { ratings.rating(for: item) },
-            set: { ratings.set($0, for: item) }
-        )) {
-            Label("Like", systemImage: "hand.thumbsup").tag(Rating.like)
-            Label("Dislike", systemImage: "hand.thumbsdown").tag(Rating.dislike)
-            Label("評価なし", systemImage: "minus").tag(Rating.none)
-        }
-    }
-}
-
 // MARK: - macOS
 
 #if os(macOS)
@@ -68,11 +51,7 @@ private struct MacPlayer: View {
         .navigationTitle(item.title)
         .onAppear {
             guard player == nil, let url = DownloadManager.shared.preferredURL(for: item) else { return }
-            let asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: false])
-            let playerItem = AVPlayerItem(asset: asset)
-            playerItem.preferredForwardBufferDuration = 0
-            playerItem.canUseNetworkResourcesForLiveStreamingWhilePaused = true
-            let player = AVPlayer(playerItem: playerItem)
+            let player = AVPlayer(playerItem: PlayerItemFactory.make(url: url))
             player.automaticallyWaitsToMinimizeStalling = false
             self.player = player
             player.play()
@@ -371,7 +350,7 @@ private struct iOSPlayer: View {
                         Button { seekTo(time) } label: {
                             HStack(spacing: 12) {
                                 SceneThumbnailView(item: item, time: time, size: CGSize(width: 100, height: 56))
-                                Text(timeLabel(time)).font(.body.monospacedDigit())
+                                Text(TimeFormatting.timeString(time)).font(.body.monospacedDigit())
                                 Spacer()
                                 Image(systemName: "play.circle")
                                     .foregroundStyle(.secondary)
@@ -395,7 +374,7 @@ private struct iOSPlayer: View {
     /// 小窓用のコンパクトなシークバー（ブックマークマーカー付き）。
     private var miniSeekBar: some View {
         HStack(spacing: 8) {
-            Text(Self.timeString(currentTime, padHours: duration >= 3600)).font(.caption2.monospacedDigit()).foregroundStyle(.white)
+            Text(TimeFormatting.timeString(currentTime, padHours: duration >= 3600)).font(.caption2.monospacedDigit()).foregroundStyle(.white)
             CircularSeekBar(value: $currentTime, duration: duration,
                             bookmarks: BookmarksModel.shared.bookmarks(for: item)) { editing in
                 isScrubbing = editing
@@ -406,7 +385,7 @@ private struct iOSPlayer: View {
                     endScrub()
                 }
             }
-            Text(Self.timeString(duration, padHours: duration >= 3600)).font(.caption2.monospacedDigit()).foregroundStyle(.white)
+            Text(TimeFormatting.timeString(duration, padHours: duration >= 3600)).font(.caption2.monospacedDigit()).foregroundStyle(.white)
         }
         .padding(.horizontal, 10)
         .padding(.bottom, 6)
@@ -417,11 +396,7 @@ private struct iOSPlayer: View {
     /// 長押しメニュー（評価・サムネ設定・シーン解析）。confirmationDialog に出す。
     @ViewBuilder
     private var actionMenuButtons: some View {
-        Button("👍 Like") { ratings.set(.like, for: item) }
-        Button("👎 Dislike") { ratings.set(.dislike, for: item) }
-        if ratings.rating(for: item) != .none {
-            Button("評価なし") { ratings.set(.none, for: item) }
-        }
+        RatingDialogButtons(item: item, ratings: ratings)
         Button("このシーンをサムネイルにする") {
             let time = player.currentTime().seconds
             if time.isFinite { ThumbnailsModel.shared.set(time, for: item) }
@@ -635,7 +610,7 @@ private struct iOSPlayer: View {
 
     private var bottomBar: some View {
         HStack(spacing: 10) {
-            Text(Self.timeString(currentTime, padHours: duration >= 3600))
+            Text(TimeFormatting.timeString(currentTime, padHours: duration >= 3600))
                 .font(.caption.monospacedDigit())
             // 現在位置より前のブックマークへ（無ければ先頭へ）。
             Button { goToPreviousBookmark() } label: {
@@ -661,7 +636,7 @@ private struct iOSPlayer: View {
             }
             .font(.title3)
             .tint(.yellow)
-            Text(Self.timeString(duration, padHours: duration >= 3600))
+            Text(TimeFormatting.timeString(duration, padHours: duration >= 3600))
                 .font(.caption.monospacedDigit())
         }
         .padding(.horizontal)
@@ -929,16 +904,6 @@ private struct iOSPlayer: View {
         scheduleAutoHide()
     }
 
-    /// 時間文字列。`padHours` が true なら 1 時間未満でも `h:mm:ss` 形式にして桁を固定する
-    /// （総時間が 1 時間超のとき現在時間の桁ぶれでシークバーの幅が変わるのを防ぐ）。
-    static func timeString(_ seconds: Double, padHours: Bool = false) -> String {
-        guard seconds.isFinite, seconds >= 0 else { return padHours ? "0:00:00" : "0:00" }
-        let total = Int(seconds)
-        let h = total / 3600, m = (total % 3600) / 60, s = total % 60
-        return (h > 0 || padHours)
-            ? String(format: "%d:%02d:%02d", h, m, s)
-            : String(format: "%d:%02d", m, s)
-    }
 }
 
 /// 現在位置を**丸いサム**で示すシークバー（標準 `Slider` の幅広サムを置換）。
@@ -1141,13 +1106,7 @@ final class PlaybackModel {
             return true
         }
         if pip.isActive { pip.stop() }   // 別アイテム → 旧 PiP を停止
-        // 数GB・長尺動画の省メモリ・高速ロード: 精密タイミングを取得せずに開く
-        // （シークはキーフレーム単位になる）。先読みは AVPlayer の自動管理に任せてメモリを抑える。
-        let asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: false])
-        let playerItem = AVPlayerItem(asset: asset)
-        playerItem.preferredForwardBufferDuration = 0
-        playerItem.canUseNetworkResourcesForLiveStreamingWhilePaused = true
-        player.replaceCurrentItem(with: playerItem)
+        player.replaceCurrentItem(with: PlayerItemFactory.make(url: url))
         loadedKey = item.id
         player.play()
         return true

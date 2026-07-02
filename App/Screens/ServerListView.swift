@@ -252,10 +252,7 @@ struct ServerListView: View {
             await model.resolveAll()
             await model.discover()
         }
-        .alert("名前を変更", isPresented: Binding(
-            get: { renamingFavorite != nil },
-            set: { if !$0 { renamingFavorite = nil } }
-        )) {
+        .alert("名前を変更", isPresented: Binding(presenting: $renamingFavorite)) {
             TextField("表示名（空でフォルダ名に戻す）", text: $renameText)
             Button("キャンセル", role: .cancel) { renamingFavorite = nil }
             Button("保存") {
@@ -342,9 +339,7 @@ struct AddServerView: View {
                 }
             }
             .navigationTitle("サーバーを追加")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("キャンセル") { dismiss() }
@@ -407,9 +402,7 @@ struct EditServerView: View {
                 }
             }
             .navigationTitle("サーバーを編集")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
+            .inlineNavigationTitle()
             .onAppear { model.addError = nil }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
