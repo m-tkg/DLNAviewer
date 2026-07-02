@@ -16,23 +16,59 @@ struct BrowseFilter {
     var allowDislike = true
     var allowNone = true
 
+    private var trimmedQuery: String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// 検索・タグ・ブックマークのいずれかで絞り込み中か。
-    var isSearching: Bool { false }
+    var isSearching: Bool {
+        !trimmedQuery.isEmpty || !tags.isEmpty || bookmarkedOnly
+    }
 
     /// 評価フィルタが有効か（いずれかの評価を非表示にしているか）。
-    var isRatingFiltering: Bool { false }
+    var isRatingFiltering: Bool {
+        !(allowLike && allowDislike && allowNone)
+    }
 
     /// 評価フィルタの単一選択（メニュー用）。3 フラグと相互変換する。
     enum Selection: Hashable { case all, like, dislike, none }
 
     var selection: Selection {
-        get { .all }
-        set { _ = newValue }
+        get {
+            switch (allowLike, allowDislike, allowNone) {
+            case (true, false, false): return .like
+            case (false, true, false): return .dislike
+            case (false, false, true): return .none
+            default: return .all
+            }
+        }
+        set {
+            switch newValue {
+            case .all:     (allowLike, allowDislike, allowNone) = (true, true, true)
+            case .like:    (allowLike, allowDislike, allowNone) = (true, false, false)
+            case .dislike: (allowLike, allowDislike, allowNone) = (false, true, false)
+            case .none:    (allowLike, allowDislike, allowNone) = (false, false, true)
+            }
+        }
     }
 
-    func allows(_ rating: Rating) -> Bool { true }
+    func allows(_ rating: Rating) -> Bool {
+        switch rating {
+        case .like: return allowLike
+        case .dislike: return allowDislike
+        case .none: return allowNone
+        }
+    }
 
-    func matches(title: String) -> Bool { true }
+    /// 検索文字列にマッチするか。正規表現として解釈し、無効なら部分一致にフォールバック。
+    func matches(title: String) -> Bool {
+        let query = trimmedQuery
+        guard !query.isEmpty else { return true }
+        if let regex = try? Regex(query).ignoresCase() {
+            return title.contains(regex)
+        }
+        return title.localizedCaseInsensitiveContains(query)
+    }
 
     /// フィルタを適用する。動画の評価・ブックマーク有無・タグはクロージャで引く。
     func apply(
@@ -41,6 +77,17 @@ struct BrowseFilter {
         hasBookmark: (MediaItem) -> Bool,
         itemTags: (MediaItem) -> [String]
     ) -> [DIDLObject] {
-        objects
+        objects.filter { object in
+            switch object {
+            case .container(let container):
+                // タグ指定・ブックマーク絞り込み中はフォルダを出さない。
+                return tags.isEmpty && !bookmarkedOnly && matches(title: container.title)
+            case .item(let item):
+                guard item.isVideo, allows(rating(item)) else { return false }
+                if bookmarkedOnly, !hasBookmark(item) { return false }
+                let lowered = Set(itemTags(item).map { $0.lowercased() })
+                return tags.isSubset(of: lowered) && matches(title: item.title)
+            }
+        }
     }
 }
