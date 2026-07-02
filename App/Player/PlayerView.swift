@@ -988,8 +988,6 @@ private struct CircularSeekBar: View {
     }
 }
 
-/// 横スワイプシーク中に表示するシークバー（読み取り専用）。
-
 /// AVPlayer を `AVPlayerLayer` で描画するビュー（コントロールは持たない）。
 /// 画面遷移をまたいで PiP を継続させるため、永続的な `PlaybackModel` のレイヤービューを使う。
 private struct PlayerLayerView: UIViewRepresentable {
@@ -1175,9 +1173,6 @@ final class PlaybackModel {
 @MainActor
 @Observable
 final class PiPController: NSObject {
-    /// この端末で PiP が使えるか。
-    var isSupported: Bool { AVPictureInPictureController.isPictureInPictureSupported() }
-
     /// PiP が起動中か。
     var isActive = false
 
