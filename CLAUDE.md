@@ -104,8 +104,8 @@ xcodebuild test -project DLNAviewer.xcodeproj -scheme DLNAviewer -destination 'p
   `App/Assets.xcassets/AppIcon.appiconset/*.png` は不透明（背景塗りつぶし）にする。
 - 輸出コンプライアンスは `Info.plist` の `ITSAppUsesNonExemptEncryption=false`（標準 TLS のみ＝免除対象）を
   宣言済み。アップロードごとの質問は出ない。
-- App ID には **iCloud capability** を有効化しておく（KVS のため。未設定だと managed 署名が失敗）。
-  multicast は承認制で現状コメントアウト。
+- App ID には **iCloud** と **Multicast Networking** の両 capability を有効化しておく
+  （前者は KVS のため、後者は iOS の SSDP 自動探索のため。未設定だと managed 署名が失敗）。
 
 ## コーディング規約 / 慣習
 
@@ -148,5 +148,5 @@ xcodebuild test -project DLNAviewer.xcodeproj -scheme DLNAviewer -destination 'p
 ## 既知の制約
 
 - 再生は `AVPlayer` 依存（H.264/HEVC の mp4/mov 等が中心。mkv 等は不可）。
-- iOS の SSDP 自動探索には multicast エンタイトルメント（Apple 承認）が必要。承認前でも手動登録で全機能可。
+- iOS の SSDP 自動探索は multicast エンタイトルメント（Apple 承認済み）で有効化済み。手動登録も引き続き併用可能。
 - macOS は App Sandbox 無効化のため iCloud KVS 同期が効かないことがある。

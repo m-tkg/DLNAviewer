@@ -6,11 +6,8 @@
 	<key>com.apple.developer.ubiquity-kvstore-identifier</key>
 	<string>$(TeamIdentifierPrefix)$(CFBundleIdentifier)</string>
 
-	<!-- iOS で SSDP 自動探索を使う場合は以下を有効化する。
-	     ただし Apple の承認（Multicast Networking Entitlement Request）が必要。
-	     承認前に有効化すると iOS 実機ビルドが失敗する。
+	<!-- iOS で SSDP 自動探索を行うための Multicast Networking Entitlement（Apple 承認済み）。 -->
 	<key>com.apple.developer.networking.multicast</key>
 	<true/>
-	-->
 </dict>
 </plist>
