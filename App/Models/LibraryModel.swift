@@ -25,8 +25,8 @@ final class LibraryModel {
     }
 
     private(set) var servers: [ServerState] = []
-    /// SSDP で自動探索したサーバー（解決済み）。
-    private(set) var discovered: [MediaServer] = []
+    /// SSDP で自動探索したサーバー（解決済み）。テストから直接差し替えられるよう setter は internal のまま。
+    var discovered: [MediaServer] = []
     var isDiscovering = false
     var addError: String?
 
