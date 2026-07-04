@@ -142,12 +142,12 @@ DLNA サーバーは SSDP（`239.255.255.250:1900` へのマルチキャスト�
 cd DLNAKit && swift run ssdpprobe
 ```
 
-### iOS で自動探索を有効にする
-iOS 14+ では `com.apple.developer.networking.multicast` エンタイトルメントが必要で、**Apple の承認**を
-要します（個人開発でも・無料）。承認前でも手動サーバー登録で全機能を利用できます。
-1. [Multicast Networking Entitlement Request](https://developer.apple.com/contact/request/networking-multicast) から申請・承認
-2. `App/DLNAviewer-iOS.entitlements` に `com.apple.developer.networking.multicast` を追加
-3. `xcodegen generate` で再生成し署名
+### iOS の自動探索
+
+iOS 14+ でマルチキャスト送受信を行うには `com.apple.developer.networking.multicast` エンタイトルメント
+（[Multicast Networking Entitlement Request](https://developer.apple.com/contact/request/networking-multicast)
+による Apple の承認が必要）が必要です。本アプリはこの承認を取得済みで、
+`App/DLNAviewer-iOS.entitlements` に有効化済みのため、追加設定なしで自動探索が使えます。
 
 > 補足: ローカルネットワーク許可は bundle id 単位で管理され、`tccutil` のリセットが効かないことがあります。
 > 許可状態が壊れた場合は再起動、または bundle id 変更で解消します。
