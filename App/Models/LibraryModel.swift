@@ -25,8 +25,8 @@ final class LibraryModel {
     }
 
     private(set) var servers: [ServerState] = []
-    /// SSDP で自動探索したサーバー（解決済み）。
-    private(set) var discovered: [MediaServer] = []
+    /// SSDP で自動探索したサーバー（解決済み）。テストから直接差し替えられるよう setter は internal のまま。
+    var discovered: [MediaServer] = []
     var isDiscovering = false
     var addError: String?
 
@@ -154,6 +154,17 @@ final class LibraryModel {
             servers[index].error = nil
             await resolve(at: index)
         }
+    }
+
+    /// 発見済みサーバーを登録済み一覧へ保存する（記述 URL と表示名を手動登録として永続化する）。
+    func saveDiscoveredServer(_ server: MediaServer) {
+        let entry = store.add(descriptionURL: server.descriptionURL, name: server.friendlyName)
+        if !servers.contains(where: { $0.id == entry.id }) {
+            var manualServer = server
+            manualServer.origin = .manual
+            servers.append(ServerState(entry: entry, server: manualServer))
+        }
+        discovered.removeAll { $0.id == server.id }
     }
 
     /// サーバーを一覧と永続化から削除する。
