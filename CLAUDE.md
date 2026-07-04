@@ -70,29 +70,36 @@ xcodebuild test -project DLNAviewer.xcodeproj -scheme DLNAviewer -destination 'p
   - `.xcodeproj` は未コミットなので、`ci_scripts/ci_post_clone.sh` がクローン後に `xcodegen generate`
     する（これが無いと Xcode Cloud がプロジェクトを見つけられない）。
 - **macOS — GitHub Actions（`.github/workflows/macos-release.yml`）→ GitHub Release**。
-  - `project.yml` の `MARKETING_VERSION` をそのままタグ化する（`v<MARKETING_VERSION>`。
-    例: `1.0.1` → `v1.0.1`）。既存リリースがあればスキップ（＝バージョンを上げた push のみリリース）。
+  - **トリガーは `v*` タグの push のみ**（`main` への push では起動しない。`workflow_dispatch` もタグ指定が必須で、
+    ブランチからの実行は弾かれる）。push されたタグと `project.yml` の `MARKETING_VERSION` から算出したタグ
+    （`v<MARKETING_VERSION>`。例: `1.0.1` → `v1.0.1`）が一致しないと失敗する。既存リリースがあればスキップする。
   - 未署名ビルド後に自前 `codesign`。署名/公証シークレット未設定なら ad-hoc にフォールバック。
-- 両 CI とも **ドキュメントのみ（`*.md` 等）の変更ではビルドしない**（GitHub Actions は `paths-ignore`、
-  Xcode Cloud は Start Condition の Files and Folders で `App` / `DLNAKit` / `project.yml` / `ci_scripts` を指定）。
+- Xcode Cloud は **ドキュメントのみ（`*.md` 等）の変更ではビルドしない**（Start Condition の
+  Files and Folders で `App` / `DLNAKit` / `project.yml` / `ci_scripts` を指定）。GitHub Actions は
+  タグ push 以外そもそも起動しないため path フィルタ自体が不要になった。
 - 新ビルド配布時は **`CURRENT_PROJECT_VERSION`（必要なら `MARKETING_VERSION`）を上げる**。同一バージョン/
   ビルド番号は App Store Connect に弾かれる。
 - CI runner は **Swift 6.2 を持つ Xcode** が必要（`DLNAKit` は `swift-tools-version: 6.2`・`.v26` 使用）。
   GitHub Actions は `setup-xcode` で `latest-stable` にピン留め。Xcode Cloud は新しめの Xcode を選ぶ。
 
-### バージョンを上げる
+### バージョンを上げる（リリース手順）
 
 バージョンは `project.yml` の 2 つの値で管理する（`MARKETING_VERSION` = 表示版・タグ採番用、
-`CURRENT_PROJECT_VERSION` = ビルド番号）。
+`CURRENT_PROJECT_VERSION` = ビルド番号）。**バージョンタグのフォーマットは `v<MARKETING_VERSION>`**
+（例: `1.0.1` → `v1.0.1`）。
 
 1. **ビルド番号を +1**: `CURRENT_PROJECT_VERSION` を上げる（新ビルド配布のたびに必須。同一だと
    App Store Connect に弾かれる）。
 2. **表示バージョンを変える場合**は `MARKETING_VERSION` も更新（例: `1.0` → `1.0.1`）。
-3. `main` へマージすると、**macOS** は `v<MARKETING_VERSION>`（例 `v1.0.1`）で GitHub Release を
-   自動作成、**iOS** は Xcode Cloud がビルドして TestFlight へ配信。
-4. ただし `MARKETING_VERSION` を据え置くと、macOS は**既存タグと衝突してリリースをスキップ**する
-   （＝表示バージョンを上げた push のみ macOS Release が出る）。TestFlight は別管理なので
-   ビルド番号さえ上げれば配信される。
+3. この変更を `main` へマージする。
+4. **macOS の GitHub Release を出す場合**は、`main` を最新化してから `v<MARKETING_VERSION>` タグを
+   作成して push する（例: `git tag v1.0.1 && git push origin v1.0.1`）。タグ push が
+   `macos-release.yml` のトリガーになる。`MARKETING_VERSION` と一致しないタグを push すると失敗する。
+   既存タグと衝突する場合（バージョンを据え置いたまま再 push した場合等）はリリースをスキップする。
+5. **iOS / TestFlight** は Xcode Cloud 側の Start Condition に従う（`main` マージで自動起動する設定なら
+   このタグ push とは無関係にビルドされる。main マージ毎の自動配布で App Store Connect の
+   アップロード上限（ITMS-90382）に達する場合は、Xcode Cloud 側の Start Condition もタグ push 起点に
+   変更を検討する。この設定は App Store Connect 側の画面操作でのみ変更でき、リポジトリ内には無い）。
 
 ## 署名 / エンタイトルメント / アイコン（配布でハマりやすい点）
 
