@@ -179,6 +179,22 @@ struct ServerListView: View {
                                 Image(systemName: "wifi")
                             }
                         }
+                        .swipeActions {
+                            Button {
+                                model.saveDiscoveredServer(server)
+                            } label: {
+                                Label("保存", systemImage: "square.and.arrow.down")
+                            }
+                            .tint(.blue)
+                        }
+                        // macOS は右クリック、iOS は長押しで保存できる。
+                        .contextMenu {
+                            Button {
+                                model.saveDiscoveredServer(server)
+                            } label: {
+                                Label("端末に保存", systemImage: "square.and.arrow.down")
+                            }
+                        }
                     }
                 }
             }

@@ -156,6 +156,17 @@ final class LibraryModel {
         }
     }
 
+    /// 発見済みサーバーを登録済み一覧へ保存する（記述 URL と表示名を手動登録として永続化する）。
+    func saveDiscoveredServer(_ server: MediaServer) {
+        let entry = store.add(descriptionURL: server.descriptionURL, name: server.friendlyName)
+        if !servers.contains(where: { $0.id == entry.id }) {
+            var manualServer = server
+            manualServer.origin = .manual
+            servers.append(ServerState(entry: entry, server: manualServer))
+        }
+        discovered.removeAll { $0.id == server.id }
+    }
+
     /// サーバーを一覧と永続化から削除する。
     func remove(_ state: ServerState) {
         store.remove(id: state.entry.id)
