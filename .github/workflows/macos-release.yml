@@ -3,16 +3,15 @@ name: macOS Release
 # macOS 版を GitHub Actions でビルドし、GitHub Release として配布する。
 # （iOS / iPadOS は Xcode Cloud → TestFlight 側で配布する。）
 # 署名・公証用シークレットが未設定なら ad-hoc 署名にフォールバックする。
+#
+# トリガーは v* タグの push のみ（main への push では起動しない）。
+# main マージ毎に自動配布すると App Store Connect のアップロード上限
+# （ITMS-90382: Upload limit reached）に達するため、配布はタグ push 時に絞る。
 
 on:
   push:
-    branches: [main]
-    # ドキュメント等のソース以外だけの変更ではビルドしない（混在 push は実行）。
-    paths-ignore:
-      - "**/*.md"
-      - LICENSE
-      - .gitignore
-      - .github/**/*.md
+    tags:
+      - "v*"
   workflow_dispatch:
 
 permissions:
@@ -24,6 +23,15 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # workflow_dispatch はタグ以外の ref (main 等) からも起動できてしまうため、
+      # タグ起点の運用を強制するためにここで弾く。
+      - name: Require tag ref
+        run: |
+          if [ "${{ github.ref_type }}" != "tag" ]; then
+            echo "::error::このワークフローはタグ(例: v1.0.0)からのみ実行できます。workflow_dispatch はタグを指定して実行してください。"
+            exit 1
+          fi
+
       # runner の既定 Xcode は実行ごとにブレ（Swift 6.1 が選ばれると DLNAKit の
       # swift-tools-version: 6.2 を解決できない）。Swift 6.2 / macOS 26 SDK を持つ
       # 最新安定版 Xcode を明示選択して固定する。
@@ -31,8 +39,9 @@ jobs:
         with:
           xcode-version: latest-stable
 
-      # project.yml の MARKETING_VERSION から vX.Y タグを決める。
-      - name: Resolve version
+      # push されたタグ(v{MARKETING_VERSION})と project.yml の MARKETING_VERSION が
+      # 一致するか検証する(タグ起点になったため、バージョンのつけ忘れ・ズレを検知する)。
+      - name: Verify tag matches project version
         id: ver
         run: |
           V=$(grep -m1 'MARKETING_VERSION' project.yml | sed -E 's/.*"([^"]+)".*/\1/')
@@ -40,9 +49,14 @@ jobs:
             echo "MARKETING_VERSION not found in project.yml" >&2
             exit 1
           fi
+          TAG="${{ github.ref_name }}"
+          if [ "$TAG" != "v${V}" ]; then
+            echo "::error::push されたタグ ($TAG) と MARKETING_VERSION (v${V}) が一致しません。"
+            exit 1
+          fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
-          echo "tag=v$V" >> "$GITHUB_OUTPUT"
-          echo "Resolved version: $V (tag v$V)"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $V (tag $TAG)"
 
       - name: Check existing release
         id: check
@@ -151,14 +165,14 @@ jobs:
         if: steps.check.outputs.exists == 'false'
         run: zip -ry DLNAviewer.zip DLNAviewer.app
 
-      - name: Create tag and release
+      # タグは push 済み(このワークフローのトリガー)のため --target は不要
+      - name: Create release
         if: steps.check.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ steps.ver.outputs.tag }}" \
             --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
             --title "${{ steps.ver.outputs.tag }}" \
             --generate-notes \
             DLNAviewer.zip
