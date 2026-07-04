@@ -92,10 +92,12 @@ xcodebuild test -project DLNAviewer.xcodeproj -scheme DLNAviewer -destination 'p
    App Store Connect に弾かれる）。
 2. **表示バージョンを変える場合**は `MARKETING_VERSION` も更新（例: `1.0` → `1.0.1`）。
 3. この変更を `main` へマージする。
-4. **macOS の GitHub Release を出す場合**は、`main` を最新化してから `v<MARKETING_VERSION>` タグを
-   作成して push する（例: `git tag v1.0.1 && git push origin v1.0.1`）。タグ push が
-   `macos-release.yml` のトリガーになる。`MARKETING_VERSION` と一致しないタグを push すると失敗する。
-   既存タグと衝突する場合（バージョンを据え置いたまま再 push した場合等）はリリースをスキップする。
+4. **macOS の GitHub Release を出す場合**は、`main` を最新化してから **`make release-tag`** を実行する
+   （手動 `git tag`/`git push` は使わない）。`project.yml` の `MARKETING_VERSION` から
+   `v<MARKETING_VERSION>` タグを算出し、以下をすべて満たさない限り `exit 1` して中断する安全チェック
+   付き: ブランチが `main`・作業ツリーがクリーン・ローカル `main` が `origin/main` と同期済み・
+   対象タグが未作成。タグ push が `macos-release.yml` のトリガーになる。既存タグと衝突する場合
+   （バージョンを据え置いたまま再実行した場合等）は `make release-tag` 自体が中断する。
 5. **iOS / TestFlight** は Xcode Cloud 側の Start Condition に従う（`main` マージで自動起動する設定なら
    このタグ push とは無関係にビルドされる。main マージ毎の自動配布で App Store Connect の
    アップロード上限（ITMS-90382）に達する場合は、Xcode Cloud 側の Start Condition もタグ push 起点に
