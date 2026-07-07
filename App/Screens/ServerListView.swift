@@ -129,32 +129,17 @@ struct ServerListView: View {
                 Section("登録済み") {
                     ForEach(model.servers) { state in
                         ServerRow(state: state)
-                            .swipeActions {
-                                Button(role: .destructive) {
-                                    model.remove(state)
-                                } label: {
-                                    Label("削除", systemImage: "trash")
-                                }
-                                Button {
-                                    editingServer = state
-                                } label: {
-                                    Label("編集", systemImage: "pencil")
-                                }
-                                .tint(.blue)
-                            }
                             // macOS は右クリック、iOS は長押しで編集・削除できる。
-                            .contextMenu {
-                                Button {
-                                    editingServer = state
-                                } label: {
-                                    Label("設定を編集…", systemImage: "pencil")
-                                }
-                                Button(role: .destructive) {
-                                    model.remove(state)
-                                } label: {
-                                    Label("削除", systemImage: "trash")
-                                }
-                            }
+                            .rowActions(
+                                swipe: [
+                                    RowAction("削除", systemImage: "trash", isDestructive: true) { model.remove(state) },
+                                    RowAction("編集", systemImage: "pencil") { editingServer = state },
+                                ],
+                                context: [
+                                    RowAction("設定を編集…", systemImage: "pencil") { editingServer = state },
+                                    RowAction("削除", systemImage: "trash", isDestructive: true) { model.remove(state) },
+                                ]
+                            )
                     }
                     .onDelete { indexSet in
                         for index in indexSet {
@@ -179,22 +164,15 @@ struct ServerListView: View {
                                 Image(systemName: "wifi")
                             }
                         }
-                        .swipeActions {
-                            Button {
-                                model.saveDiscoveredServer(server)
-                            } label: {
-                                Label("保存", systemImage: "square.and.arrow.down")
-                            }
-                            .tint(.blue)
-                        }
                         // macOS は右クリック、iOS は長押しで保存できる。
-                        .contextMenu {
-                            Button {
-                                model.saveDiscoveredServer(server)
-                            } label: {
-                                Label("端末に保存", systemImage: "square.and.arrow.down")
-                            }
-                        }
+                        .rowActions(
+                            swipe: [
+                                RowAction("保存", systemImage: "square.and.arrow.down") { model.saveDiscoveredServer(server) },
+                            ],
+                            context: [
+                                RowAction("端末に保存", systemImage: "square.and.arrow.down") { model.saveDiscoveredServer(server) },
+                            ]
+                        )
                     }
                 }
             }
@@ -214,31 +192,16 @@ struct ServerListView: View {
                                 Image(systemName: "star.fill").foregroundStyle(.yellow)
                             }
                         }
-                        .swipeActions {
-                            Button(role: .destructive) {
-                                favorites.remove(id: folder.id)
-                            } label: {
-                                Label("お気に入り解除", systemImage: "star.slash")
-                            }
-                            Button {
-                                beginRename(folder)
-                            } label: {
-                                Label("名前を変更", systemImage: "pencil")
-                            }
-                            .tint(.blue)
-                        }
-                        .contextMenu {
-                            Button {
-                                beginRename(folder)
-                            } label: {
-                                Label("名前を変更", systemImage: "pencil")
-                            }
-                            Button(role: .destructive) {
-                                favorites.remove(id: folder.id)
-                            } label: {
-                                Label("お気に入り解除", systemImage: "star.slash")
-                            }
-                        }
+                        .rowActions(
+                            swipe: [
+                                RowAction("お気に入り解除", systemImage: "star.slash", isDestructive: true) { favorites.remove(id: folder.id) },
+                                RowAction("名前を変更", systemImage: "pencil") { beginRename(folder) },
+                            ],
+                            context: [
+                                RowAction("名前を変更", systemImage: "pencil") { beginRename(folder) },
+                                RowAction("お気に入り解除", systemImage: "star.slash", isDestructive: true) { favorites.remove(id: folder.id) },
+                            ]
+                        )
                     }
                     .onMove { source, destination in
                         favorites.move(fromOffsets: source, toOffset: destination)
@@ -338,15 +301,7 @@ struct AddServerView: View {
         NavigationStack {
             Form {
                 Section("DLNA サーバーの記述 URL") {
-                    TextField("http://192.168.1.10:8200/rootDesc.xml", text: $urlString)
-                        #if os(iOS)
-                        .textInputAutocapitalization(.never)
-                        .keyboardType(.URL)
-                        #endif
-                        .autocorrectionDisabled()
-                    if let error = model.addError {
-                        Text(error).font(.caption).foregroundStyle(.red)
-                    }
+                    ServerURLField(urlString: $urlString, error: model.addError)
                 }
                 Section {
                     Text("NAS やメディアサーバーのデバイス記述（device description）XML の URL を入力します。")
@@ -397,15 +352,7 @@ struct EditServerView: View {
         NavigationStack {
             Form {
                 Section("記述 URL（IP / ポート / パス）") {
-                    TextField("http://192.168.1.10:8200/rootDesc.xml", text: $urlString)
-                        #if os(iOS)
-                        .textInputAutocapitalization(.never)
-                        .keyboardType(.URL)
-                        #endif
-                        .autocorrectionDisabled()
-                    if let error = model.addError {
-                        Text(error).font(.caption).foregroundStyle(.red)
-                    }
+                    ServerURLField(urlString: $urlString, error: model.addError)
                 }
                 Section("表示名（任意）") {
                     TextField(state.server?.friendlyName ?? "DLNA Server", text: $name)
