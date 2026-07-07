@@ -122,9 +122,10 @@ cd DLNAKit && swift test
 ## 配布
 
 - **iOS / iPadOS**: Xcode Cloud でビルドし **TestFlight** へ配信（ワークフローの scheme は `DLNAviewer`）。
-- **macOS**: GitHub Actions（`.github/workflows/macos-release.yml`）で `main` への push 時にビルドし、
-  `MARKETING_VERSION` から `v<MARKETING_VERSION>` タグ（例 `1.0.1` → `v1.0.1`）で **GitHub Release** を作成（バージョンを上げた時のみ）。
-- どちらも**ドキュメント（`*.md` 等）だけの変更ではビルドしない**。
+- **macOS**: GitHub Actions（`.github/workflows/macos-release.yml`）が `v<MARKETING_VERSION>` タグ
+  （例 `1.0.1` → `v1.0.1`。`main` への push では起動しない）の push をトリガーにビルドし、**GitHub Release** を作成する。
+  `make release-tag` でこのタグを打てる。
+- Xcode Cloud は**ドキュメント（`*.md` 等）だけの変更ではビルドしない**（GitHub Actions はタグ push 以外そもそも起動しない）。
 - 開発・CI・署名まわりの詳細な注意点は `CLAUDE.md` を参照。
 
 ## 自動探索（SSDP / UPnP）について
