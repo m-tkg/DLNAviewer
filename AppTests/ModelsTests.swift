@@ -69,6 +69,17 @@ struct RatingsModelTests {
         _ = model.rating(for: item)
         #expect(flag.invalidated == false, "評価の参照だけで View が無効化されてはならない")
     }
+
+    @Test("評価変更で注入した FeedbackCenter に flash が記録される（shared を汚染しない）")
+    func setFlashesInjectedFeedbackCenter() {
+        let feedback = FeedbackCenter()
+        let model = RatingsModel(store: RatingStore(storage: InMemoryStorage()), feedback: feedback)
+        let item = makeItem()
+
+        model.set(.like, for: item)
+
+        #expect(feedback.current?.rating == .like)
+    }
 }
 
 @MainActor
