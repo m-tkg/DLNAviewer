@@ -35,25 +35,16 @@ struct iOSPlayer: View {
     /// 速度メニューのプリセット。
     private static let speedOptions: [Double] = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
 
-    // 再生・PiP・描画レイヤーは永続モデルが保持する（画面遷移をまたいで継続）。
-    private var player: AVPlayer { PlaybackModel.shared.player }
-    private var pip: PiPController { PlaybackModel.shared.pip }
+    // 再生・PiP・描画レイヤー・再生位置/状態・スクラブ制御は永続モデルが保持する
+    // （画面遷移をまたいで継続するほか、この View は UI 状態だけに専念できる）。
+    @Bindable private var playback = PlaybackModel.shared
+    private var player: AVPlayer { playback.player }
+    private var pip: PiPController { playback.pip }
 
     @State private var hasSource = true
     @State private var controlsVisible = true
-    @State private var isPlaying = true
-    // 再生待ち（バッファ読み込み中）。true の間はコントロールを隠してスピナーを出す。
-    @State private var isWaiting = true
-    @State private var currentTime: Double = 0
-    @State private var duration: Double = 0
-    @State private var isScrubbing = false
     @State private var hideTask: Task<Void, Never>?
     @State private var showingBookmarks = false
-    // シーク中の音声再生用
-    @State private var scrubAudioActive = false
-    @State private var wasPlayingBeforeScrub = false
-    // シーク中だけスタール待機を有効化し、再生が安定したら元（待たない＝即時再生）へ戻す予約。
-    @State private var restoreStallWaitingWhenPlaying = false
 
     // スワイプシーク用
     @State private var viewHeight: CGFloat = 1
@@ -71,7 +62,6 @@ struct iOSPlayer: View {
     @State private var dragStartTime: Double?
     @State private var dragUnit: Double = 60
     @State private var pendingSeekTarget: Double?
-    @State private var seeker = SmoothSeeker()
 
     /// 縦スワイプで回転とみなす最小移動量。
     private let rotateThreshold: CGFloat = 60
@@ -91,19 +81,19 @@ struct iOSPlayer: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
-        .onReceive(ticker) { _ in tick() }
+        .onReceive(ticker) { _ in playback.tick() }
         // シークバー（スライダー）ドラッグ中も動画を追従させる。
-        .onChange(of: currentTime) { _, newValue in
-            if isScrubbing { seeker.seek(toSeconds: newValue, tolerance: 0.5) }
+        .onChange(of: playback.currentTime) { _, newValue in
+            if playback.isScrubbing { playback.seeker.seek(toSeconds: newValue, tolerance: 0.5) }
         }
         // 前/次の動画へ移動したら読み込み直す。
         .onChange(of: index) { _, _ in
-            currentTime = 0
-            duration = 0
+            playback.currentTime = 0
+            playback.duration = 0
             pendingSeekTarget = nil
-            isScrubbing = false
+            playback.isScrubbing = false
             hasSource = true
-            isWaiting = true
+            playback.isWaiting = true
             setUp()
             withAnimation(.easeInOut(duration: 0.2)) { controlsVisible = true }
         }
@@ -120,7 +110,7 @@ struct iOSPlayer: View {
             hideTask?.cancel()
             OrientationManager.shared.resetToPortrait()   // 一覧へ戻る時は縦
             // PiP 中は止めない（PiP のままリストへ戻っても再生継続）。
-            PlaybackModel.shared.pauseUnlessPiP()
+            playback.pauseUnlessPiP()
             if !pip.isActive { AudioSessionManager.deactivate() }
         }
     }
@@ -147,7 +137,7 @@ struct iOSPlayer: View {
                 .ignoresSafeArea()
                 // コントロール表示中はこの上にバーを重ねる。バー領域はタップを吸収し、
                 // 中央の空き領域だけ下の tapLayer に通す。
-                if isWaiting {
+                if playback.isWaiting {
                     // 読み込み中はヘッダ（戻る・タイトル）だけ出し、中央にくるくるを表示。
                     VStack(spacing: 0) {
                         headerBar
@@ -214,7 +204,7 @@ struct iOSPlayer: View {
         .confirmationDialog("操作", isPresented: $showingActionMenu, titleVisibility: .hidden) {
             actionMenuButtons
         } message: {
-            if isWaiting { Text(loadStatusText) }
+            if playback.isWaiting { Text(loadStatusText) }
         }
         .background {
             // 上半分／下半分の判定に使うビュー高さを取得。
@@ -240,7 +230,7 @@ struct iOSPlayer: View {
     private func captureFrame() async -> UIImage? {
         guard let url = DownloadManager.shared.preferredURL(for: item) else { return nil }
         let t = player.currentTime().seconds
-        let seconds = t.isFinite ? t : currentTime
+        let seconds = t.isFinite ? t : playback.currentTime
         guard let cg = await ThumbnailCache.shared.generate(from: url, at: seconds, tolerance: 0.5, maxSize: 1280) else {
             return nil
         }
@@ -316,18 +306,18 @@ struct iOSPlayer: View {
     /// 小窓用のコンパクトなシークバー（ブックマークマーカー付き）。
     private var miniSeekBar: some View {
         HStack(spacing: 8) {
-            Text(TimeFormatting.timeString(currentTime, padHours: duration >= 3600)).font(.caption2.monospacedDigit()).foregroundStyle(.white)
-            CircularSeekBar(value: $currentTime, duration: duration,
+            Text(TimeFormatting.timeString(playback.currentTime, padHours: playback.duration >= 3600)).font(.caption2.monospacedDigit()).foregroundStyle(.white)
+            CircularSeekBar(value: $playback.currentTime, duration: playback.duration,
                             bookmarks: BookmarksModel.shared.bookmarks(for: item)) { editing in
-                isScrubbing = editing
+                playback.isScrubbing = editing
                 if editing {
-                    beginScrub()
+                    playback.beginScrub()
                 } else {
-                    seeker.seek(toSeconds: currentTime, tolerance: 0)
-                    endScrub()
+                    playback.seeker.seek(toSeconds: playback.currentTime, tolerance: 0)
+                    playback.endScrub()
                 }
             }
-            Text(TimeFormatting.timeString(duration, padHours: duration >= 3600)).font(.caption2.monospacedDigit()).foregroundStyle(.white)
+            Text(TimeFormatting.timeString(playback.duration, padHours: playback.duration >= 3600)).font(.caption2.monospacedDigit()).foregroundStyle(.white)
         }
         .padding(.horizontal, 10)
         .padding(.bottom, 6)
@@ -376,7 +366,7 @@ struct iOSPlayer: View {
     /// 現在位置から先にバッファ済みの秒数。
     private func bufferedAheadSeconds(_ item: AVPlayerItem) -> Double {
         guard let range = item.loadedTimeRanges.first?.timeRangeValue else { return 0 }
-        return max(0, CMTimeGetSeconds(range.end) - currentTime)
+        return max(0, CMTimeGetSeconds(range.end) - playback.currentTime)
     }
 
     /// ヘッダ（戻る・タイトル・タグ）。読み込み中とコントロール表示中の両方で出す。
@@ -462,7 +452,7 @@ struct iOSPlayer: View {
             // 現在位置をブックマーク追加（ライブのプレイヤー位置を使う）。
             Button {
                 let time = player.currentTime().seconds
-                BookmarksModel.shared.add(time.isFinite ? time : currentTime, for: item)
+                BookmarksModel.shared.add(time.isFinite ? time : playback.currentTime, for: item)
                 scheduleAutoHide()
             } label: {
                 Image(systemName: "bookmark").font(.title3)
@@ -524,7 +514,7 @@ struct iOSPlayer: View {
                     .frame(width: 56, height: 56).contentShape(Rectangle())
             }
             Button { togglePlay() } label: {
-                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                Image(systemName: playback.isPlaying ? "pause.fill" : "play.fill")
                     .frame(width: 64, height: 56).contentShape(Rectangle())
             }
             Button { skip(Double(skipSeconds)) } label: {
@@ -552,7 +542,7 @@ struct iOSPlayer: View {
 
     private var bottomBar: some View {
         HStack(spacing: 10) {
-            Text(TimeFormatting.timeString(currentTime, padHours: duration >= 3600))
+            Text(TimeFormatting.timeString(playback.currentTime, padHours: playback.duration >= 3600))
                 .font(.caption.monospacedDigit())
             // 現在位置より前のブックマークへ（無ければ先頭へ）。
             Button { goToPreviousBookmark() } label: {
@@ -560,15 +550,15 @@ struct iOSPlayer: View {
             }
             .font(.title3)
             .tint(.yellow)
-            CircularSeekBar(value: $currentTime, duration: duration,
+            CircularSeekBar(value: $playback.currentTime, duration: playback.duration,
                             bookmarks: BookmarksModel.shared.bookmarks(for: item)) { editing in
-                isScrubbing = editing
+                playback.isScrubbing = editing
                 if editing {
                     hideTask?.cancel()
-                    beginScrub()
+                    playback.beginScrub()
                 } else {
-                    seeker.seek(toSeconds: currentTime, tolerance: 0)   // 最終位置へ正確にシーク
-                    endScrub()
+                    playback.seeker.seek(toSeconds: playback.currentTime, tolerance: 0)   // 最終位置へ正確にシーク
+                    playback.endScrub()
                     scheduleAutoHide()
                 }
             }
@@ -578,7 +568,7 @@ struct iOSPlayer: View {
             }
             .font(.title3)
             .tint(.yellow)
-            Text(TimeFormatting.timeString(duration, padHours: duration >= 3600))
+            Text(TimeFormatting.timeString(playback.duration, padHours: playback.duration >= 3600))
                 .font(.caption.monospacedDigit())
         }
         .padding(.horizontal)
@@ -589,12 +579,12 @@ struct iOSPlayer: View {
     /// 「通過したばかり」とみなしてさらに一つ前へ。前が無ければ先頭(0)へ戻る。
     private func goToPreviousBookmark() {
         let marks = BookmarksModel.shared.bookmarks(for: item)
-        let preceding = marks.filter { $0 <= currentTime + 0.001 }   // 現在位置以前
+        let preceding = marks.filter { $0 <= playback.currentTime + 0.001 }   // 現在位置以前
         guard let nearest = preceding.last else {
             seekTo(0)
             return
         }
-        if currentTime - nearest <= 2.0 {
+        if playback.currentTime - nearest <= 2.0 {
             seekTo(preceding.dropLast().last ?? 0)
         } else {
             seekTo(nearest)
@@ -604,40 +594,31 @@ struct iOSPlayer: View {
     /// 現在位置より後の最初のブックマークへ移動。無ければ何もしない。
     private func goToNextBookmark() {
         let marks = BookmarksModel.shared.bookmarks(for: item)
-        guard let next = marks.first(where: { $0 > currentTime + 0.001 }) else { return }
+        guard let next = marks.first(where: { $0 > playback.currentTime + 0.001 }) else { return }
         seekTo(next)
     }
 
     private func seekTo(_ time: Double) {
-        currentTime = time
-        seeker.seek(toSeconds: time, tolerance: 0)
+        playback.currentTime = time
+        playback.seeker.seek(toSeconds: time, tolerance: 0)
         scheduleAutoHide()
     }
 
     // MARK: 再生制御
 
     private func setUp() {
-        seeker.setPlayer(player)
-        guard PlaybackModel.shared.load(item: item, playInSilentMode: playInSilentMode) else {
+        guard playback.load(item: item, playInSilentMode: playInSilentMode) else {
             hasSource = false
             return
         }
         hasSource = true
-        isPlaying = true
-        // シーク中だけ有効化する待機設定が前アイテムから残らないよう、即時再生モードへ戻す。
-        restoreStallWaitingWhenPlaying = false
-        player.automaticallyWaitsToMinimizeStalling = false
         applyPlaybackRate()
         scheduleAutoHide()
     }
 
     /// 現在の再生速度をプレイヤーへ反映する。再生中なら即時、停止中は次回 play() に反映。
     private func applyPlaybackRate() {
-        let rate = Float(playbackRate)
-        player.defaultRate = rate
-        if player.timeControlStatus != .paused {
-            player.rate = rate
-        }
+        playback.applyPlaybackRate(playbackRate)
     }
 
     /// 速度ラベル（例: 1x / 1.5x / 0.75x）。
@@ -645,41 +626,19 @@ struct iOSPlayer: View {
         "\(String(format: "%g", rate))x"
     }
 
-    private func tick() {
-        if !isScrubbing {
-            let t = player.currentTime().seconds
-            if t.isFinite { currentTime = t }
-        }
-        if let d = player.currentItem?.duration.seconds, d.isFinite, d > 0 {
-            duration = d
-        }
-        isPlaying = player.timeControlStatus == .playing
-        // 再生待ち（バッファ読み込み中）はコントロールを隠してスピナーを出す。
-        isWaiting = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
-        // シーク後、再生が実際に再開して安定したら、元の即時再生モードへ戻す。
-        if restoreStallWaitingWhenPlaying, player.timeControlStatus == .playing {
-            player.automaticallyWaitsToMinimizeStalling = false
-            restoreStallWaitingWhenPlaying = false
-        }
-    }
-
     private func togglePlay() {
-        if player.timeControlStatus == .playing {
-            player.pause()
-            isPlaying = false
-            hideTask?.cancel()       // 停止中はコントロールを出したままにする
-        } else {
-            player.play()
-            isPlaying = true
+        playback.togglePlay()
+        if playback.isPlaying {
             scheduleAutoHide()
+        } else {
+            hideTask?.cancel()       // 停止中はコントロールを出したままにする
         }
     }
 
     /// 再生中なら一時停止する（シート/解析を開く前に呼ぶ）。
     private func pausePlayback() {
         guard player.timeControlStatus != .paused else { return }
-        player.pause()
-        isPlaying = false
+        playback.pausePlayback()
         hideTask?.cancel()
     }
 
@@ -688,54 +647,26 @@ struct iOSPlayer: View {
                     toleranceBefore: .zero, toleranceAfter: .zero)
     }
 
-    /// シーク（スクラブ）開始: その位置の音を出すため再生状態にする。
-    private func beginScrub() {
-        guard !scrubAudioActive else { return }
-        scrubAudioActive = true
-        wasPlayingBeforeScrub = (player.timeControlStatus == .playing)
-        // ストリーミングではシーク先のバッファが空なので、待たない設定（即時再生）のままだと
-        // シーク後に止まったまま自動再開しない。シーク中だけ「再生可能になるまで待つ」を許可する。
-        restoreStallWaitingWhenPlaying = false
-        player.automaticallyWaitsToMinimizeStalling = true
-        player.play()
-        isPlaying = true
-    }
-
-    /// シーク終了: 元の再生/停止状態へ戻す。
-    private func endScrub() {
-        guard scrubAudioActive else { return }
-        scrubAudioActive = false
-        if !wasPlayingBeforeScrub {
-            player.pause()
-            isPlaying = false
-            // 停止確定なら即、元の即時再生モードへ戻す。
-            player.automaticallyWaitsToMinimizeStalling = false
-        } else {
-            // 再生継続。シーク先のバッファが溜まり再生が安定したら（tick で）即時再生モードへ戻す。
-            restoreStallWaitingWhenPlaying = true
-        }
-    }
-
     /// プレイヤー上のドラッグ（GestureSurface のパンから呼ばれる）。
     /// - 横方向: シーク。上半分=60秒・下半分=30秒を単位に移動（コントロール表示中も可）。
     /// - 縦方向: 回転。縦状態で上スワイプ→横、横状態で下スワイプ→縦（YouTube ライク）。
     private func handlePanChanged(translation: CGSize, startLocation: CGPoint, viewSize: CGSize) {
-        guard hasSource, duration > 0 else { return }
+        guard hasSource, playback.duration > 0 else { return }
         // 横方向が主のドラッグだけシークプレビューを出す（コントロール表示中も可）。
         guard abs(translation.width) > abs(translation.height) else { return }
         if dragStartTime == nil {
-            dragStartTime = currentTime
+            dragStartTime = playback.currentTime
             dragUnit = Double(startLocation.y < viewSize.height / 2 ? seekUnitTop : seekUnitBottom)
-            isScrubbing = true   // tick による currentTime 上書きを止める
-            beginScrub()   // シーク中も音を出す
+            playback.isScrubbing = true   // tick による currentTime 上書きを止める
+            playback.beginScrub()   // シーク中も音を出す
         }
-        let start = dragStartTime ?? currentTime
+        let start = dragStartTime ?? playback.currentTime
         let units = (translation.width / pointsPerUnit).rounded(.towardZero)
-        let target = min(max(0, start + units * dragUnit), duration)
+        let target = min(max(0, start + units * dragUnit), playback.duration)
         pendingSeekTarget = target
-        currentTime = target   // コントローラのシークバーを目標位置へ追従
+        playback.currentTime = target   // コントローラのシークバーを目標位置へ追従
         // 指を離す前から動画を追従させる（どのシーンか分かるように）。
-        seeker.seek(toSeconds: target, tolerance: 0.5)
+        playback.seeker.seek(toSeconds: target, tolerance: 0.5)
     }
 
     private func handlePanEnded(translation: CGSize) {
@@ -743,13 +674,13 @@ struct iOSPlayer: View {
         let target = pendingSeekTarget
         dragStartTime = nil
         pendingSeekTarget = nil
-        endScrub()   // 元の再生/停止状態へ戻す
-        isScrubbing = false
+        playback.endScrub()   // 元の再生/停止状態へ戻す
+        playback.isScrubbing = false
 
         if isHorizontal {
             guard let target else { return }
-            seeker.seek(toSeconds: target, tolerance: 0)   // 最終位置へ正確にシーク
-            currentTime = target
+            playback.seeker.seek(toSeconds: target, tolerance: 0)   // 最終位置へ正確にシーク
+            playback.currentTime = target
             if controlsVisible { scheduleAutoHide() }      // 操作中は自動非表示を延長
         } else {
             // 縦スワイプ
@@ -788,8 +719,8 @@ struct iOSPlayer: View {
     }
 
     private func skip(_ delta: Double) {
-        let target = max(0, min(duration > 0 ? duration : .greatestFiniteMagnitude, currentTime + delta))
-        currentTime = target
+        let target = max(0, min(playback.duration > 0 ? playback.duration : .greatestFiniteMagnitude, playback.currentTime + delta))
+        playback.currentTime = target
         seek(to: target)
         scheduleAutoHide()
     }
@@ -833,7 +764,7 @@ struct iOSPlayer: View {
         hideTask = Task {
             try? await Task.sleep(for: .seconds(3.5))
             // タイトル長押しで全文表示中は隠さない。
-            if !Task.isCancelled, isPlaying, !isScrubbing, !showingFullTitle {
+            if !Task.isCancelled, playback.isPlaying, !playback.isScrubbing, !showingFullTitle {
                 withAnimation(.easeInOut(duration: 0.2)) { controlsVisible = false }
             }
         }
