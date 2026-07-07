@@ -348,11 +348,8 @@ struct BrowseView: View {
     }
 
     private var list: some View {
-        // displayObjects は重い計算なので 1 回だけ評価し、プレイリストと添字も使い回す。
-        let objects = displayObjects
-        let videos = videoItems(from: objects)
-        let indexByID = videoIndexMap(videos)
-        return List(objects) { object in
+        let data = browseListData
+        return List(data.objects) { object in
             switch object {
             case .container(let container):
                 if let server {
@@ -368,7 +365,7 @@ struct BrowseView: View {
                     .contextMenu { folderMenu(container) }
                 }
             case .item(let item):
-                NavigationLink(value: PlayerRoute(items: videos, index: indexByID[item.id] ?? 0)) {
+                NavigationLink(value: PlayerRoute(items: data.videos, index: data.indexByID[item.id] ?? 0)) {
                     VideoRow(item: item, rating: ratings.rating(for: item), thumbSize: listThumbSize)
                 }
                 // 左スワイプ（trailing）で評価を選択。
@@ -389,13 +386,19 @@ struct BrowseView: View {
         Dictionary(videos.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
-    private var grid: some View {
+    /// list/grid で共通の表示データ。displayObjects は重い計算なので 1 回だけ評価し、
+    /// プレイリスト（videos）と前/次移動用の添字（indexByID）も使い回す。
+    private var browseListData: (objects: [DIDLObject], videos: [MediaItem], indexByID: [String: Int]) {
         let objects = displayObjects
         let videos = videoItems(from: objects)
-        let indexByID = videoIndexMap(videos)
+        return (objects, videos, videoIndexMap(videos))
+    }
+
+    private var grid: some View {
+        let data = browseListData
         return ScrollView {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: gridMinWidth), spacing: 16)], spacing: 16) {
-                ForEach(objects) { object in
+                ForEach(data.objects) { object in
                     switch object {
                     case .container(let container):
                         if let server {
@@ -406,7 +409,7 @@ struct BrowseView: View {
                             .contextMenu { folderMenu(container) }
                         }
                     case .item(let item):
-                        NavigationLink(value: PlayerRoute(items: videos, index: indexByID[item.id] ?? 0)) {
+                        NavigationLink(value: PlayerRoute(items: data.videos, index: data.indexByID[item.id] ?? 0)) {
                             videoTile(item)
                         }
                         .buttonStyle(.plain)
