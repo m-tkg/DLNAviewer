@@ -10,9 +10,11 @@ final class RatingsModel {
     static let shared = RatingsModel()
     private let store: RatingStore
     private let cache: PersistentValueCache<Rating>
+    private let feedback: FeedbackCenter
 
-    init(store: RatingStore = RatingStore()) {
+    init(store: RatingStore = RatingStore(), feedback: FeedbackCenter = .shared) {
         self.store = store
+        self.feedback = feedback
         self.cache = PersistentValueCache(cache: store.all()) { value, key in
             store.setRating(value ?? .none, for: key)
         }
@@ -29,7 +31,7 @@ final class RatingsModel {
 
     func set(_ rating: Rating, for item: MediaItem) {
         cache.setValue(rating == .none ? nil : rating, for: item)
-        FeedbackCenter.shared.flash(rating)   // 中央にアイコン演出
+        feedback.flash(rating)   // 中央にアイコン演出
     }
 }
 
