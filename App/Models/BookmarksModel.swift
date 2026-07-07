@@ -7,50 +7,38 @@ import DLNAKit
 @Observable
 final class BookmarksModel {
     static let shared = BookmarksModel()
-
-    private var cache: [String: [Double]]
     private let store: BookmarkStore
+    private let cache: PersistentValueCache<[Double]>
 
     init(store: BookmarkStore = BookmarkStore()) {
         self.store = store
-        self.cache = store.all()
+        self.cache = PersistentValueCache(cache: store.all()) { value, key in
+            store.setBookmarks(value ?? [], for: key)
+        }
     }
 
     /// ストアからキャッシュを読み直す（iCloud 同期反映用）。
     func reload() {
-        cache = store.all()
+        cache.reload(store.all())
     }
 
     func bookmarks(for item: MediaItem) -> [Double] {
-        (cache[key(for: item)] ?? []).sorted()
+        (cache.value(for: item) ?? []).sorted()
     }
 
     /// 現在位置を追加（約0.4秒以内の近接重複のみ無視）。
     func add(_ time: Double, for item: MediaItem) {
         guard time.isFinite, time >= 0 else { return }
-        let k = key(for: item)
-        var list = cache[k] ?? []
+        var list = cache.value(for: item) ?? []
         guard !list.contains(where: { abs($0 - time) < 0.4 }) else { return }
         list.append(time)
         list.sort()
-        cache[k] = list
-        store.setBookmarks(list, for: k)
+        cache.setValue(list, for: item)
     }
 
     func remove(_ time: Double, for item: MediaItem) {
-        let k = key(for: item)
-        var list = cache[k] ?? []
+        var list = cache.value(for: item) ?? []
         list.removeAll { abs($0 - time) < 0.001 }
-        cache[k] = list.isEmpty ? nil : list
-        store.setBookmarks(list, for: k)
-    }
-
-    /// 同一性キー。旧スキーム（タイトルのみ／object id）のデータが残っていれば一度だけ移行する。
-    /// cache への書き込みは移行が起きたときだけ（参照だけで observable な変更を発生させない）。
-    private func key(for item: MediaItem) -> String {
-        PersistentKeyMigration.key(for: item, lookup: { cache[$0] }) { value, key in
-            cache[key] = value
-            store.setBookmarks(value, for: key)
-        }
+        cache.setValue(list.isEmpty ? nil : list, for: item)
     }
 }

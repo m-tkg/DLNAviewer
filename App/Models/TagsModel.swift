@@ -7,53 +7,45 @@ import DLNAKit
 @Observable
 final class TagsModel {
     static let shared = TagsModel()
-
-    private var cache: [String: [String]]
     private let store: TagStore
+    private let cache: PersistentValueCache<[String]>
 
     init(store: TagStore = TagStore()) {
         self.store = store
-        self.cache = store.all()
+        self.cache = PersistentValueCache(cache: store.all()) { value, key in
+            store.setTags(value ?? [], for: key)
+        }
     }
 
     /// ストアからキャッシュを読み直す（iCloud 同期反映用）。
     func reload() {
-        cache = store.all()
+        cache.reload(store.all())
     }
 
     func tags(for item: MediaItem) -> [String] {
-        (cache[key(for: item)] ?? []).sorted()
+        (cache.value(for: item) ?? []).sorted()
     }
 
     func add(_ tag: String, for item: MediaItem) {
         let t = tag.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return }
-        var list = cache[key(for: item)] ?? []
+        var list = cache.value(for: item) ?? []
         guard !list.contains(where: { $0.lowercased() == t.lowercased() }) else { return }
         list.append(t)
-        commit(list, for: item)
+        cache.setValue(list.isEmpty ? nil : list.sorted(), for: item)
     }
 
     func remove(_ tag: String, for item: MediaItem) {
-        var list = cache[key(for: item)] ?? []
+        var list = cache.value(for: item) ?? []
         list.removeAll { $0.lowercased() == tag.lowercased() }
-        commit(list, for: item)
-    }
-
-    /// 同一性キー。旧スキーム（タイトルのみ／object id）のデータが残っていれば一度だけ移行する。
-    /// cache への書き込みは移行が起きたときだけ（参照だけで observable な変更を発生させない）。
-    private func key(for item: MediaItem) -> String {
-        PersistentKeyMigration.key(for: item, lookup: { cache[$0] }) { value, key in
-            cache[key] = value
-            store.setTags(value, for: key)
-        }
+        cache.setValue(list.isEmpty ? nil : list.sorted(), for: item)
     }
 
     /// すべての動画で使われているタグ（ユニーク・昇順）。自動補完用。
     func allTags() -> [String] {
         var seen = Set<String>()
         var result: [String] = []
-        for list in cache.values {
+        for list in cache.cache.values {
             for tag in list where seen.insert(tag.lowercased()).inserted {
                 result.append(tag)
             }
@@ -61,18 +53,12 @@ final class TagsModel {
         return result.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
-    private func commit(_ list: [String], for item: MediaItem) {
-        let k = key(for: item)
-        cache[k] = list.isEmpty ? nil : list.sorted()
-        store.setTags(list, for: k)
-    }
-
     // MARK: グローバル操作（タグ管理）
 
     /// タグが使われている動画の本数。
     func usageCount(_ tag: String) -> Int {
         let lower = tag.lowercased()
-        return cache.values.filter { $0.contains { $0.lowercased() == lower } }.count
+        return cache.cache.values.filter { $0.contains { $0.lowercased() == lower } }.count
     }
 
     /// タグ名を一括変更（使っている全動画に反映、重複は統合）。
@@ -80,23 +66,21 @@ final class TagsModel {
         let newName = new.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !newName.isEmpty else { return }
         let oldLower = old.lowercased()
-        for (id, tags) in cache where tags.contains(where: { $0.lowercased() == oldLower }) {
+        for (id, tags) in cache.cache where tags.contains(where: { $0.lowercased() == oldLower }) {
             var updated = tags.filter { $0.lowercased() != oldLower }
             if !updated.contains(where: { $0.lowercased() == newName.lowercased() }) {
                 updated.append(newName)
             }
-            cache[id] = updated.isEmpty ? nil : updated.sorted()
-            store.setTags(updated, for: id)
+            cache.set(updated.isEmpty ? nil : updated.sorted(), forKey: id)
         }
     }
 
     /// タグを一括削除（使っている全動画から外す）。
     func deleteTag(_ tag: String) {
         let lower = tag.lowercased()
-        for (id, tags) in cache where tags.contains(where: { $0.lowercased() == lower }) {
+        for (id, tags) in cache.cache where tags.contains(where: { $0.lowercased() == lower }) {
             let updated = tags.filter { $0.lowercased() != lower }
-            cache[id] = updated.isEmpty ? nil : updated.sorted()
-            store.setTags(updated, for: id)
+            cache.set(updated.isEmpty ? nil : updated.sorted(), forKey: id)
         }
     }
 }
