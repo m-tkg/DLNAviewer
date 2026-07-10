@@ -21,7 +21,7 @@ macOS **26 以降**）。個人利用・Xcode で自分のデバイスへ署名�
   - 永続化ストア群（UserDefaults に JSON）: `ManualServerStore` / `RatingStore` / `BookmarkStore` /
     `TagStore` / `ThumbnailOverrideStore` / `FavoriteFolderStore`
   - `Models` — `MediaServer` / `MediaContainer` / `MediaItem` / `MediaResource`。
-    `MediaItem.persistentKey`（後述）/ `Update`（`ReleaseInfo` / `VersionComparator`）
+    `MediaItem.persistentKey`（後述）
 - **`App/`** — SwiftUI アプリ（iOS / macOS 共通ソース）
   - 画面: `ServerListView`（ルート）/ `BrowseView`（一覧。`downloadsMode` でダウンロード一覧も兼ねる）/
     `PlayerView`（iOS カスタムプレイヤー）/ `DownloadsView` / `SettingsView` / `TagEditorView` 他
@@ -29,8 +29,6 @@ macOS **26 以降**）。個人利用・Xcode で自分のデバイスへ署名�
     `ThumbnailsModel` / `FavoritesModel` / `DownloadManager`（多くは `shared` シングルトン）
   - 解析系（iOS）: `SceneDescriber`（シーン説明）/ `TagSuggester`（タグ提案）/ `ChapterDetector`（自動チャプター）
   - 同期: `CloudSync`（UserDefaults を NSUbiquitousKeyValueStore にミラー）
-  - アップデート（macOS のみ・`MacUpdater.swift`）: `UpdateService`（GitHub Release 取得・zip DL）/
-    `SelfUpdater`（ditto 展開・`.app` 入れ替え・再起動）/ `UpdateChecker`（設定画面の状態管理）
 - **`project.yml`** — [xcodegen](https://github.com/yonaskolb/XcodeGen) のプロジェクト定義
 
 `DLNAviewer.xcodeproj` は xcodegen の生成物で **gitignore 対象（コミットしない）**。手で編集せず、
@@ -69,38 +67,28 @@ xcodebuild test -project DLNAviewer.xcodeproj -scheme DLNAviewer -destination 'p
     先頭のため自動選択で誤りやすい）。
   - `.xcodeproj` は未コミットなので、`ci_scripts/ci_post_clone.sh` がクローン後に `xcodegen generate`
     する（これが無いと Xcode Cloud がプロジェクトを見つけられない）。
-- **macOS — GitHub Actions（`.github/workflows/macos-release.yml`）→ GitHub Release**。
-  - **トリガーは `v*` タグの push のみ**（`main` への push では起動しない。`workflow_dispatch` もタグ指定が必須で、
-    ブランチからの実行は弾かれる）。push されたタグと `project.yml` の `MARKETING_VERSION` から算出したタグ
-    （`v<MARKETING_VERSION>`。例: `1.0.1` → `v1.0.1`）が一致しないと失敗する。既存リリースがあればスキップする。
-  - 未署名ビルド後に自前 `codesign`。署名/公証シークレット未設定なら ad-hoc にフォールバック。
+- **macOS 版は配布しない**（Mac では iPad 版アプリを使う運用。macOS ターゲット自体はテスト実行・
+  ローカルビルド用に残している）。過去に GitHub Actions（タグ push 起点）で GitHub Release を
+  出していたが廃止済み。タグは履歴として残っている。
 - Xcode Cloud は **ドキュメントのみ（`*.md` 等）の変更ではビルドしない**（Start Condition の
-  Files and Folders で `App` / `DLNAKit` / `project.yml` / `ci_scripts` を指定）。GitHub Actions は
-  タグ push 以外そもそも起動しないため path フィルタ自体が不要になった。
+  Files and Folders で `App` / `DLNAKit` / `project.yml` / `ci_scripts` を指定）。
 - 新ビルド配布時は **`CURRENT_PROJECT_VERSION`（必要なら `MARKETING_VERSION`）を上げる**。同一バージョン/
   ビルド番号は App Store Connect に弾かれる。
 - CI runner は **Swift 6.2 を持つ Xcode** が必要（`DLNAKit` は `swift-tools-version: 6.2`・`.v26` 使用）。
-  GitHub Actions は `setup-xcode` で `latest-stable` にピン留め。Xcode Cloud は新しめの Xcode を選ぶ。
+  Xcode Cloud は新しめの Xcode を選ぶ。
 
 ### バージョンを上げる（リリース手順）
 
-バージョンは `project.yml` の 2 つの値で管理する（`MARKETING_VERSION` = 表示版・タグ採番用、
-`CURRENT_PROJECT_VERSION` = ビルド番号）。**バージョンタグのフォーマットは `v<MARKETING_VERSION>`**
-（例: `1.0.1` → `v1.0.1`）。
+バージョンは `project.yml` の 2 つの値で管理する（`MARKETING_VERSION` = 表示版、
+`CURRENT_PROJECT_VERSION` = ビルド番号）。
 
 1. **ビルド番号を +1**: `CURRENT_PROJECT_VERSION` を上げる（新ビルド配布のたびに必須。同一だと
    App Store Connect に弾かれる）。
 2. **表示バージョンを変える場合**は `MARKETING_VERSION` も更新（例: `1.0` → `1.0.1`）。
 3. この変更を `main` へマージする。
-4. **macOS の GitHub Release を出す場合**は、`main` を最新化してから **`make release-tag`** を実行する
-   （手動 `git tag`/`git push` は使わない）。`project.yml` の `MARKETING_VERSION` から
-   `v<MARKETING_VERSION>` タグを算出し、以下をすべて満たさない限り `exit 1` して中断する安全チェック
-   付き: ブランチが `main`・作業ツリーがクリーン・ローカル `main` が `origin/main` と同期済み・
-   対象タグが未作成。タグ push が `macos-release.yml` のトリガーになる。既存タグと衝突する場合
-   （バージョンを据え置いたまま再実行した場合等）は `make release-tag` 自体が中断する。
-5. **iOS / TestFlight** は Xcode Cloud 側の Start Condition に従う（`main` マージで自動起動する設定なら
-   このタグ push とは無関係にビルドされる。main マージ毎の自動配布で App Store Connect の
-   アップロード上限（ITMS-90382）に達する場合は、Xcode Cloud 側の Start Condition もタグ push 起点に
+4. **iOS / TestFlight** は Xcode Cloud 側の Start Condition に従う（`main` マージで自動起動する設定なら
+   マージにより自動でビルドされる。main マージ毎の自動配布で App Store Connect の
+   アップロード上限（ITMS-90382）に達する場合は、Xcode Cloud 側の Start Condition をタグ push 起点に
    変更を検討する。この設定は App Store Connect 側の画面操作でのみ変更でき、リポジトリ内には無い）。
 
 ## 署名 / エンタイトルメント / アイコン（配布でハマりやすい点）

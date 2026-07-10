@@ -58,7 +58,7 @@
 
 ### macOS
 - 標準 `VideoPlayer`（PiP も標準対応）。一覧/検索/タグ/フィルタ/ダウンロード/評価/お気に入りは共通
-- **アップデートチェック / 自動更新**（設定ダイアログ内）— GitHub Release の最新版を確認し、新しければその場でダウンロード・入れ替え・再起動
+- ※ 配布はしていない（Mac では iPad 版アプリの利用を想定。ローカルビルドは可能）
 
 ### 動画の同一性（評価・ブックマーク等の引き継ぎ）
 - 評価・ブックマーク・タグ・サムネ上書き・生成サムネは、**タイトル＋再生時間＋ファイルサイズ**で動画を識別して保存
@@ -122,10 +122,9 @@ cd DLNAKit && swift test
 ## 配布
 
 - **iOS / iPadOS**: Xcode Cloud でビルドし **TestFlight** へ配信（ワークフローの scheme は `DLNAviewer`）。
-- **macOS**: GitHub Actions（`.github/workflows/macos-release.yml`）が `v<MARKETING_VERSION>` タグ
-  （例 `1.0.1` → `v1.0.1`。`main` への push では起動しない）の push をトリガーにビルドし、**GitHub Release** を作成する。
-  `make release-tag` でこのタグを打てる。
-- Xcode Cloud は**ドキュメント（`*.md` 等）だけの変更ではビルドしない**（GitHub Actions はタグ push 以外そもそも起動しない）。
+  Mac では iPad 版アプリ（Apple Silicon）を利用する。
+- **macOS 版は配布しない**（過去の GitHub Actions → GitHub Release 配布は廃止。タグは履歴として残存）。
+- Xcode Cloud は**ドキュメント（`*.md` 等）だけの変更ではビルドしない**。
 - 開発・CI・署名まわりの詳細な注意点は `CLAUDE.md` を参照。
 
 ## 自動探索（SSDP / UPnP）について
