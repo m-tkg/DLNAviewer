@@ -21,10 +21,6 @@ struct SettingsView: View {
     @State private var orphanScanning = false
     @State private var orphanOutcome: OrphanScanner.Outcome?
     @State private var confirmDeleteOrphans = false
-    #if os(macOS)
-    // 起動時チェック（ServerListView）と状態を共有する。
-    @State private var updater = UpdateChecker.shared
-    #endif
 
     private let options = [5, 10, 15, 30, 45, 60, 90, 120, 180, 300]
 
@@ -88,10 +84,6 @@ struct SettingsView: View {
                 }
 
                 orphanScanSection
-
-                #if os(macOS)
-                updateSection
-                #endif
             }
             .navigationTitle("設定")
             .inlineNavigationTitle()
@@ -127,8 +119,8 @@ struct SettingsView: View {
             }
         }
         #if os(macOS)
-        // sheet はコンテンツ駆動で幅が詰まり、LabeledContent のラベル（例「現在のバージョン」）
-        // が見切れる。十分な最小サイズを与える。
+        // sheet はコンテンツ駆動で幅が詰まり、LabeledContent のラベルが見切れる。
+        // 十分な最小サイズを与える。
         .frame(minWidth: 460, idealWidth: 480, minHeight: 560)
         #endif
     }
@@ -195,38 +187,4 @@ struct SettingsView: View {
         let m = seconds / 60, s = seconds % 60
         return s == 0 ? "\(m)分" : "\(m)分\(s)秒"
     }
-
-    #if os(macOS)
-    /// アップデート確認・自動更新（macOS のみ。GitHub Release から取得）。
-    @ViewBuilder
-    private var updateSection: some View {
-        Section {
-            LabeledContent("現在のバージョン", value: updater.currentVersion)
-
-            switch updater.state {
-            case .idle, .failed:
-                Button("アップデートを確認") { Task { await updater.check() } }
-            case .checking:
-                HStack { ProgressView().controlSize(.small); Text("確認中…") }
-            case .upToDate:
-                Label("最新です", systemImage: "checkmark.circle")
-                    .foregroundStyle(.green)
-                Button("再確認") { Task { await updater.check() } }
-            case .available(let release):
-                Label("新しいバージョン \(release.tagName) があります", systemImage: "arrow.down.circle")
-                Button("ダウンロードしてインストール") { Task { await updater.update(to: release) } }
-            case .downloading:
-                HStack { ProgressView().controlSize(.small); Text("ダウンロードして更新中…") }
-            }
-
-            if case .failed(let message) = updater.state {
-                Text(message).font(.caption).foregroundStyle(.red)
-            }
-        } header: {
-            Text("アップデート")
-        } footer: {
-            Text("GitHub のリリースから最新版を確認し、その場で更新します。更新後は自動で再起動します。")
-        }
-    }
-    #endif
 }
