@@ -35,6 +35,8 @@ struct BrowseView: View {
 
     private var ratings: RatingsModel { RatingsModel.shared }
     @AppStorage("browseGridMode") private var gridMode = false
+    // グリッドの列数（1〜6）。画面幅に依存する好みなので iCloud 同期はしない（端末ごと）。
+    @AppStorage("gridColumns") private var gridColumns = 3
     // 評価フィルタ（ファイルのみ対象。フォルダは常に表示）。
     @AppStorage("filterLike") private var filterLike = true
     @AppStorage("filterDislike") private var filterDislike = true
@@ -161,6 +163,14 @@ struct BrowseView: View {
                 // ツールバーボタンでは .contextMenu / .onLongPressGesture が iOS で効かないため
                 // primaryAction 付き Menu を使う（タップ=主アクション・長押し=メニュー）。
                 Menu {
+                    if gridMode {
+                        Picker("列数", selection: $gridColumns) {
+                            ForEach(1...6, id: \.self) { n in
+                                Text("\(n)列").tag(n)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                    }
                     Button {
                         copyDisplayedList()
                     } label: {
@@ -338,15 +348,6 @@ struct BrowseView: View {
         }
     }
 
-    /// グリッド列の最小幅（3段階）。
-    private var gridMinWidth: CGFloat {
-        switch thumbnailSize {
-        case 0: return 110
-        case 2: return 230
-        default: return 160
-        }
-    }
-
     private var list: some View {
         let data = browseListData
         return List(data.objects) { object in
@@ -397,7 +398,7 @@ struct BrowseView: View {
     private var grid: some View {
         let data = browseListData
         return ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: gridMinWidth), spacing: 16)], spacing: 16) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: gridColumns), spacing: 16) {
                 ForEach(data.objects) { object in
                     switch object {
                     case .container(let container):
