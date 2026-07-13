@@ -53,7 +53,7 @@ struct SettingsView: View {
                     Text("再生画面の戻る/進むボタンと、中央より左右のダブルタップでの移動秒数です。")
                 }
 
-                Section("表示") {
+                Section {
                     Picker("サムネイルのサイズ", selection: $thumbnailSize) {
                         Text("小").tag(0)
                         Text("中").tag(1)
@@ -62,6 +62,10 @@ struct SettingsView: View {
                     #if os(iOS)
                     .pickerStyle(.segmented)
                     #endif
+                } header: {
+                    Text("表示")
+                } footer: {
+                    Text("リスト表示のサムネイルサイズです。アイコン表示の列数は一覧画面の表示切替ボタン長押しで変更できます。")
                 }
 
                 Section {
