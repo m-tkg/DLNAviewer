@@ -70,8 +70,10 @@ xcodebuild test -project DLNAviewer.xcodeproj -scheme DLNAviewer -destination 'p
 - **macOS 版は配布しない**（Mac では iPad 版アプリを使う運用。macOS ターゲット自体はテスト実行・
   ローカルビルド用に残している）。過去に GitHub Actions（タグ push 起点）で GitHub Release を
   出していたが廃止済み。タグは履歴として残っている。
-- Xcode Cloud は **ドキュメントのみ（`*.md` 等）の変更ではビルドしない**（Start Condition の
-  Files and Folders で `App` / `DLNAKit` / `project.yml` / `ci_scripts` を指定）。
+- Xcode Cloud の Start Condition は **Start if any file changes**（Files and Folders フィルタなし）。
+  ドキュメントのみ（`*.md` 等）の変更でもビルドが走る。フィルタを再設定する場合は
+  `App` / `DLNAKit` / `project.yml` / `ci_scripts` に加えて **`Config` も含める**こと
+  （署名既定値 `Config/Signing.xcconfig` の変更でビルドが走らなくなるため）。
 - 新ビルド配布時は **`CURRENT_PROJECT_VERSION`（必要なら `MARKETING_VERSION`）を上げる**。同一バージョン/
   ビルド番号は App Store Connect に弾かれる。
 - CI runner は **Swift 6.2 を持つ Xcode** が必要（`DLNAKit` は `swift-tools-version: 6.2`・`.v26` 使用）。
