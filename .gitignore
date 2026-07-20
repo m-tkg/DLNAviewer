@@ -13,3 +13,6 @@ App/Info.plist
 
 # Claude Code（ローカル設定・一時ファイル）
 .claude/
+
+# 署名のローカル上書き(git 管理外)
+Config/Local.xcconfig

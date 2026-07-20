@@ -8,6 +8,10 @@
 - プラットフォーム: iOS / iPadOS / macOS **26 以降**（SwiftUI マルチプラットフォーム）
 - bundle id: `com.mtkg.dlnaviewer`
 
+> **自分のアカウントでビルドする場合**は、先に `Config/Local.xcconfig` を作って
+> Team ID と Bundle ID を自分の値に差し替える必要がある。
+> 手順は[こちら](#自分のアカウントでビルドする)。
+
 ## 主な機能
 
 ### サーバー / 一覧
@@ -110,8 +114,15 @@ xcodebuild -project DLNAviewer.xcodeproj -scheme DLNAviewer \
   -destination 'generic/platform=iOS Simulator' build
 ```
 
-実機へインストールする場合は、Xcode の Signing & Capabilities で自分の Apple ID チーム
-を設定してください。
+### 自分のアカウントでビルドする
+
+`Config/Signing.xcconfig` は編集せず、`Config/Local.xcconfig` を作って上書きする。
+
+    cp Config/Local.xcconfig.sample Config/Local.xcconfig
+    # DEVELOPMENT_TEAM と APP_BUNDLE_ID を自分の値に書き換える
+
+`Config/Local.xcconfig` は .gitignore 済みなので、追跡ファイルの差分は出ない。
+Bundle ID（`APP_BUNDLE_ID`）は必ず変更すること（元の Bundle ID は他アカウントでは使えない）。
 
 ## テスト
 

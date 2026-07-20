@@ -1,6 +1,8 @@
 name: DLNAviewer
+configFiles:
+  Debug: Config/Signing.xcconfig
+  Release: Config/Signing.xcconfig
 options:
-  bundleIdPrefix: com.mtkg
   deploymentTarget:
     iOS: "26.0"
     macOS: "26.0"
@@ -15,7 +17,6 @@ settings:
     MARKETING_VERSION: "1.0.50"
     CURRENT_PROJECT_VERSION: "52"
     SWIFT_VERSION: "6.0"
-    DEVELOPMENT_TEAM: G72M73C546
     CODE_SIGN_STYLE: Automatic
 
 targets:
@@ -31,7 +32,7 @@ targets:
       - package: DLNAKit
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.mtkg.dlnaviewer
+        PRODUCT_BUNDLE_IDENTIFIER: "$(APP_BUNDLE_ID)"
         GENERATE_INFOPLIST_FILE: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # エンタイトルメントはプラットフォーム別に分ける。共有すると iOS に macOS 専用キー
@@ -81,6 +82,7 @@ targets:
       - target: DLNAviewer
     settings:
       base:
+        PRODUCT_BUNDLE_IDENTIFIER: "$(APP_BUNDLE_ID).Tests"
         GENERATE_INFOPLIST_FILE: YES
         # xcodegen は iOS 形式（DLNAviewer.app/DLNAviewer）の TEST_HOST を生成するため、
         # macOS はバンドル構造（Contents/MacOS/）に合わせて上書きする。
