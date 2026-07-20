@@ -93,6 +93,8 @@ xcodebuild test -project DLNAviewer.xcodeproj -scheme DLNAviewer -destination 'p
 
 ## 署名 / エンタイトルメント / アイコン（配布でハマりやすい点）
 
+- **署名の既定値**は `Config/Signing.xcconfig`（コミット）。自分のアカウントでビルドする場合は
+  `Config/Local.xcconfig`（git 管理外）で上書きする（詳細は README の「自分のアカウントでビルドする」）。
 - **エンタイトルメントはプラットフォーム別**（`project.yml` で `CODE_SIGN_ENTITLEMENTS[sdk=macosx*]` 出し分け）。
   - `App/DLNAviewer-iOS.entitlements` — iCloud KVS のみ。
   - `App/DLNAviewer-macOS.entitlements` — App Sandbox 無効 + iCloud KVS。
