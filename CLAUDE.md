@@ -70,8 +70,9 @@ xcodebuild test -project DLNAviewer.xcodeproj -scheme DLNAviewer -destination 'p
 - **macOS 版は配布しない**（Mac では iPad 版アプリを使う運用。macOS ターゲット自体はテスト実行・
   ローカルビルド用に残している）。過去に GitHub Actions（タグ push 起点）で GitHub Release を
   出していたが廃止済み。タグは履歴として残っている。
-- Xcode Cloud の Start Condition は **Start if any file changes**（Files and Folders フィルタなし）。
-  ドキュメントのみ（`*.md` 等）の変更でもビルドが走る。フィルタを再設定する場合は
+- Xcode Cloud の Start Condition は **タグ push 起点**（`v1.0.51` 形式のタグ）。`main` マージだけでは
+  ビルドは走らない。この設定は App Store Connect 側の画面操作でのみ変更でき、リポジトリ内には無い。
+  ブランチ変更起点（Start if any file changes）へ戻す場合、Files and Folders フィルタには
   `App` / `DLNAKit` / `project.yml` / `ci_scripts` に加えて **`Config` も含める**こと
   （署名既定値 `Config/Signing.xcconfig` の変更でビルドが走らなくなるため）。
 - 新ビルド配布時は **`CURRENT_PROJECT_VERSION`（必要なら `MARKETING_VERSION`）を上げる**。同一バージョン/
@@ -88,10 +89,10 @@ xcodebuild test -project DLNAviewer.xcodeproj -scheme DLNAviewer -destination 'p
    App Store Connect に弾かれる）。
 2. **表示バージョンを変える場合**は `MARKETING_VERSION` も更新（例: `1.0` → `1.0.1`）。
 3. この変更を `main` へマージする。
-4. **iOS / TestFlight** は Xcode Cloud 側の Start Condition に従う（`main` マージで自動起動する設定なら
-   マージにより自動でビルドされる。main マージ毎の自動配布で App Store Connect の
-   アップロード上限（ITMS-90382）に達する場合は、Xcode Cloud 側の Start Condition をタグ push 起点に
-   変更を検討する。この設定は App Store Connect 側の画面操作でのみ変更でき、リポジトリ内には無い）。
+4. **リリースタグを push する**: `git tag v<MARKETING_VERSION>`（例: `v1.0.51`）→
+   `git push origin v<MARKETING_VERSION>`。Xcode Cloud はタグ push 起点のため、
+   タグを打たないと TestFlight ビルドは走らない（main マージ毎の自動配布は App Store Connect の
+   アップロード上限 ITMS-90382 に達するため、タグ起点に変更済み）。
 
 ## 署名 / エンタイトルメント / アイコン（配布でハマりやすい点）
 
