@@ -14,8 +14,8 @@ packages:
 
 settings:
   base:
-    MARKETING_VERSION: "1.0.50"
-    CURRENT_PROJECT_VERSION: "52"
+    MARKETING_VERSION: "1.0.51"
+    CURRENT_PROJECT_VERSION: "53"
     SWIFT_VERSION: "6.0"
     CODE_SIGN_STYLE: Automatic
 
