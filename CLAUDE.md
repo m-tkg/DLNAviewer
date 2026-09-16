@@ -79,6 +79,12 @@ xcodebuild test -project DLNAviewer.xcodeproj -scheme DLNAviewer -destination 'p
   ビルド番号は App Store Connect に弾かれる。
 - CI runner は **Swift 6.2 を持つ Xcode** が必要（`DLNAKit` は `swift-tools-version: 6.2`・`.v26` 使用）。
   Xcode Cloud は新しめの Xcode を選ぶ。
+- **TestFlight を待たずにすぐ実機へ配りたいとき**は OTA 配布（`make ota`、実体は `Scripts/ota.sh`。
+  `transittimer` の同名コマンドを流用）。Ad Hoc エクスポート（`teamID: G72M73C546`）で ipa/
+  manifest.plist/index.html を作り、`miscpi.mtkg` の `/mnt/storage/ota/dlnaviewer` へ ssh/rsync 配信、
+  `https://ota.mtkg/dlnaviewer` の index.html から `itms-services://` でインストールする。Ad Hoc の
+  ため配布先デバイスは事前に Apple Developer の Devices へ登録が必要（App Store Connect の証明書とは
+  別枠）。`OTA_URL=https://example.com` で別サーバへ、`--no-deploy` で `build/ota/` に作るだけに切替可。
 
 ### バージョンを上げる（リリース手順）
 

@@ -8,6 +8,9 @@ xcuserdata/
 DLNAviewer.xcodeproj/
 App/Info.plist
 
+# OTA 配布の生成物（Scripts/ota.sh の出力先）
+build/
+
 # macOS
 .DS_Store
 
